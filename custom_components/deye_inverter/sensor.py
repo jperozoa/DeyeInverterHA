@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from typing import Any, Optional
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
+    SensorEntityDescription,
     SensorStateClass,
 )
 from homeassistant.const import PERCENTAGE, UnitOfPower
@@ -20,6 +23,72 @@ from .entity_descriptions import DeyeSensorDescription, build_descriptions
 _LOGGER = logging.getLogger(__name__)
 
 ATTRIBUTION = "Data provided by Deye inverter via Modbus TCP"
+
+
+def _num(data: Mapping[str, Any], key: str) -> Optional[float]:
+    """Return a parsed metric as a float, or None when it is unusable."""
+    try:
+        return float(data[key])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _home_consumption(data: Mapping[str, Any]) -> Optional[float]:
+    """Power drawn by the house: production plus whatever the grid and
+    battery contribute (both are signed: + imports/discharges, - exports/charges).
+    """
+    values = [
+        _num(data, k)
+        for k in ("PV1 Power", "PV2 Power", "Total Grid Power", "Battery Power")
+    ]
+    if any(v is None for v in values):
+        return None
+    return max(round(sum(v for v in values if v is not None)), 0)
+
+
+def _grid_import(data: Mapping[str, Any]) -> Optional[float]:
+    grid = _num(data, "Total Grid Power")
+    return None if grid is None else max(round(grid), 0)
+
+
+def _grid_export(data: Mapping[str, Any]) -> Optional[float]:
+    grid = _num(data, "Total Grid Power")
+    return None if grid is None else max(round(-grid), 0)
+
+
+@dataclass(frozen=True, kw_only=True)
+class DeyeComputedDescription(SensorEntityDescription):
+    """Description of a sensor computed from several parsed metrics."""
+
+    value_fn: Callable[[Mapping[str, Any]], Optional[float]]
+
+
+COMPUTED_DESCRIPTIONS: tuple[DeyeComputedDescription, ...] = (
+    DeyeComputedDescription(
+        key="home_consumption",
+        name="Home Consumption",
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfPower.WATT,
+        value_fn=_home_consumption,
+    ),
+    DeyeComputedDescription(
+        key="grid_import",
+        name="Grid Import",
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfPower.WATT,
+        value_fn=_grid_import,
+    ),
+    DeyeComputedDescription(
+        key="grid_export",
+        name="Grid Export",
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfPower.WATT,
+        value_fn=_grid_export,
+    ),
+)
 
 
 def _inverter_device_info(coordinator: DeyeDataUpdateCoordinator) -> DeviceInfo:
@@ -42,6 +111,10 @@ async def async_setup_entry(
     entities: list[SensorEntity] = [DeyeInverterSensor(coordinator)]
     if getattr(coordinator, "installed_power", 0):
         entities.append(DeyeProductionPercentSensor(coordinator))
+    entities.extend(
+        DeyeComputedSensor(coordinator, description)
+        for description in COMPUTED_DESCRIPTIONS
+    )
     entities.extend(
         DeyeMetricSensor(coordinator, description)
         for description in build_descriptions()
@@ -124,6 +197,39 @@ class DeyeProductionPercentSensor(
         except (TypeError, ValueError):
             return None
         return round(pv_power / installed_w * 100, 1)
+
+
+class DeyeComputedSensor(CoordinatorEntity[DeyeDataUpdateCoordinator], SensorEntity):
+    """Sensor derived from several parsed metrics (home consumption, grid flow)."""
+
+    _attr_has_entity_name = True
+    entity_description: DeyeComputedDescription
+
+    def __init__(
+        self,
+        coordinator: DeyeDataUpdateCoordinator,
+        description: DeyeComputedDescription,
+    ) -> None:
+        """Initialize the computed sensor from its description."""
+        super().__init__(coordinator)
+        self.entity_description = description
+        serial = getattr(coordinator, "serial", "unknown")
+        self._attr_unique_id = f"{serial}_{description.key}"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device info for the Deye inverter."""
+        return _inverter_device_info(self.coordinator)
+
+    @property
+    def available(self) -> bool:
+        """Unavailable while any of the source metrics is missing."""
+        return super().available and self.native_value is not None
+
+    @property
+    def native_value(self) -> Optional[float]:
+        """Compute the value from the current coordinator data."""
+        return self.entity_description.value_fn(self.coordinator.data or {})
 
 
 class DeyeMetricSensor(CoordinatorEntity[DeyeDataUpdateCoordinator], SensorEntity):

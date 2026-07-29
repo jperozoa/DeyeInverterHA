@@ -7,6 +7,8 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from custom_components.deye_inverter.entity_descriptions import build_descriptions
 from custom_components.deye_inverter.sensor import (
+    COMPUTED_DESCRIPTIONS,
+    DeyeComputedSensor,
     DeyeInverterSensor,
     DeyeMetricSensor,
     DeyeProductionPercentSensor,
@@ -101,6 +103,65 @@ def test_production_percent_bad_data(mock_coordinator):
     """Bad PV values report None instead of raising."""
     mock_coordinator.data = {"PV1 Power": "bad"}
     assert DeyeProductionPercentSensor(mock_coordinator).native_value is None
+
+
+# === Computed sensors (home consumption, grid import/export) ===
+
+def _computed(coordinator, key):
+    desc = next(d for d in COMPUTED_DESCRIPTIONS if d.key == key)
+    return DeyeComputedSensor(coordinator, desc)
+
+def test_computed_sensors_exporting(mock_coordinator):
+    """Exporting 200 W while charging the battery at 100 W."""
+    mock_coordinator.data = {
+        "PV1 Power": 500, "PV2 Power": 300,
+        "Total Grid Power": -200, "Battery Power": -100,
+    }
+    # 500 + 300 - 200 - 100 = 500 W used by the house
+    assert _computed(mock_coordinator, "home_consumption").native_value == 500
+    assert _computed(mock_coordinator, "grid_export").native_value == 200
+    assert _computed(mock_coordinator, "grid_import").native_value == 0
+
+def test_computed_sensors_importing(mock_coordinator):
+    """At night: no PV, importing 400 W and discharging 100 W."""
+    mock_coordinator.data = {
+        "PV1 Power": 0, "PV2 Power": 0,
+        "Total Grid Power": 400, "Battery Power": 100,
+    }
+    assert _computed(mock_coordinator, "home_consumption").native_value == 500
+    assert _computed(mock_coordinator, "grid_import").native_value == 400
+    assert _computed(mock_coordinator, "grid_export").native_value == 0
+
+def test_computed_sensor_metadata(mock_coordinator):
+    sensor = _computed(mock_coordinator, "home_consumption")
+    assert sensor.unique_id == "ABC123_home_consumption"
+    assert sensor.device_class is SensorDeviceClass.POWER
+    assert sensor.state_class is SensorStateClass.MEASUREMENT
+    assert sensor.native_unit_of_measurement == "W"
+    assert sensor.device_info["identifiers"] == {("deye_inverter", "ABC123")}
+
+def test_computed_sensor_unavailable_when_source_missing(mock_coordinator):
+    """A missing source metric makes the sensor unavailable, not zero."""
+    mock_coordinator.data = {"PV1 Power": 500}  # no PV2/grid/battery
+    sensor = _computed(mock_coordinator, "home_consumption")
+
+    assert sensor.native_value is None
+    assert sensor.available is False
+
+def test_computed_sensor_handles_bad_values(mock_coordinator):
+    mock_coordinator.data = {
+        "PV1 Power": "bad", "PV2 Power": 300,
+        "Total Grid Power": -200, "Battery Power": -100,
+    }
+    assert _computed(mock_coordinator, "home_consumption").native_value is None
+
+def test_home_consumption_never_negative(mock_coordinator):
+    """Sampling skew must not produce a negative consumption."""
+    mock_coordinator.data = {
+        "PV1 Power": 100, "PV2 Power": 0,
+        "Total Grid Power": -500, "Battery Power": 0,
+    }
+    assert _computed(mock_coordinator, "home_consumption").native_value == 0
 
 
 # === Description builder ===

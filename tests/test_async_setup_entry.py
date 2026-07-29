@@ -2,6 +2,8 @@ import pytest
 from unittest.mock import MagicMock
 
 from custom_components.deye_inverter.sensor import (
+    COMPUTED_DESCRIPTIONS,
+    DeyeComputedSensor,
     DeyeInverterSensor,
     DeyeMetricSensor,
     DeyeProductionPercentSensor,
@@ -34,7 +36,9 @@ async def test_async_setup_entry_adds_entities():
 
     await async_setup_entry(hass, mock_entry, async_add_entities)
 
-    assert len(added) == 2 + len(build_descriptions())
+    n_computed = len(COMPUTED_DESCRIPTIONS)
+    assert len(added) == 2 + n_computed + len(build_descriptions())
     assert isinstance(added[0], DeyeInverterSensor)
     assert isinstance(added[1], DeyeProductionPercentSensor)
-    assert all(isinstance(e, DeyeMetricSensor) for e in added[2:])
+    assert all(isinstance(e, DeyeComputedSensor) for e in added[2:2 + n_computed])
+    assert all(isinstance(e, DeyeMetricSensor) for e in added[2 + n_computed:])

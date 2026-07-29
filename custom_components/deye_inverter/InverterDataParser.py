@@ -1,16 +1,18 @@
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Sequence, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import importlib.resources as pkg_resources
+
+from .const import REGISTER_BLOCKS
 
 _LOGGER = logging.getLogger(__name__)
 
 
 def _load_definitions() -> Union[Dict[str, Any], List[Any]]:
     try:
-        data = pkg_resources.read_text(__package__, "DYRealTime.txt")
+        data = (pkg_resources.files(__package__) / "DYRealTime.txt").read_text()
     except Exception:
         fp = Path(__file__).parent / "DYRealTime.txt"
         try:
@@ -23,6 +25,16 @@ def _load_definitions() -> Union[Dict[str, Any], List[Any]]:
     except json.JSONDecodeError as e:
         _LOGGER.error("Error parsing DYRealTime.txt: %s", e)
         return {}
+
+
+def register_index(reg: int) -> Optional[int]:
+    """Map a register address to its index in the flat register list."""
+    offset = 0
+    for start, end in REGISTER_BLOCKS:
+        if start <= reg <= end:
+            return offset + (reg - start)
+        offset += end - start + 1
+    return None
 
 
 _DEFINITIONS = _load_definitions()
@@ -112,9 +124,8 @@ def parse_gen_connected_status(value: int) -> str:
     return "On" if value == 1 else "Off"
 
 
-def parse_raw(raw: List[int]) -> Dict[str, Any]:
+def parse_raw(raw: Sequence[Optional[int]]) -> Dict[str, Any]:
     result: Dict[str, Any] = {}
-    first_len = 0x0070 - 0x003B + 1
 
     REVERSED_FIELDS = {
         "Total Production",
@@ -150,19 +161,14 @@ def parse_raw(raw: List[int]) -> Dict[str, Any]:
 
                 indices = []
                 for reg_hex in registers:
-                    reg = int(reg_hex, 16)
-                    if 0x003B <= reg <= 0x0070:
-                        idx = reg - 0x003B
-                    elif 0x0096 <= reg <= 0x00C3:
-                        idx = first_len + (reg - 0x0096)
-                    elif 0x0003 <= reg <= 0x00F8:
-                        idx = reg  # generic fallback indexing
-                    else:
-                        continue
-                    indices.append(idx)
+                    idx = register_index(int(reg_hex, 16))
+                    if idx is not None:
+                        indices.append(idx)
 
-                block = [raw[i] for i in indices if 0 <= i < len(raw)]
-                if not block:
+                values = [raw[i] for i in indices if 0 <= i < len(raw)]
+                # None marks an optional block that could not be read
+                block = [v for v in values if v is not None]
+                if not block or len(block) != len(values):
                     continue
 
                 # Rule 5: ASCII string

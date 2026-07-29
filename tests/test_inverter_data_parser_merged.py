@@ -238,7 +238,7 @@ from custom_components.deye_inverter.InverterDataParser import (
 
 def test_load_definitions_json_error():
     bad_json = "{bad: json"
-    with patch("importlib.resources.read_text", return_value=bad_json):
+    with patch("pathlib.Path.read_text", return_value=bad_json):
         result = _load_definitions()
         assert result == {}
 
@@ -312,7 +312,7 @@ def test_parse_raw_enum_mapping(monkeypatch):
             "items": [
                 {
                     "titleEN": "Mode Status",
-                    "registers": ["0x00F1"],
+                    "registers": ["0x00F4"],
                     "interactionType": 2,
                     "parserRule": 1,
                     "optionRanges": [
@@ -330,8 +330,8 @@ def test_parse_raw_enum_mapping(monkeypatch):
         title = item["titleEN"]
         mapping = {opt["key"]: opt["valueEN"] for opt in item["optionRanges"]}
         _ENUM_MAPPINGS[(reg, title)] = mapping
-    raw = [0] * 242
-    raw[241] = 2
+    raw = [0] * 117
+    raw[112] = 2  # 0x00F4 -> first register of the last read block
     result = parse_raw(raw)
     assert result["Mode Status"] == "Manual"
 
@@ -342,7 +342,7 @@ def test_parse_raw_enum_unknown(monkeypatch):
             "items": [
                 {
                     "titleEN": "Mode Status",
-                    "registers": ["0x00F1"],
+                    "registers": ["0x00F4"],
                     "interactionType": 2,
                     "parserRule": 1,
                     "optionRanges": [
@@ -359,8 +359,8 @@ def test_parse_raw_enum_unknown(monkeypatch):
         title = item["titleEN"]
         mapping = {opt["key"]: opt["valueEN"] for opt in item["optionRanges"]}
         _ENUM_MAPPINGS[(reg, title)] = mapping
-    raw = [0] * 242
-    raw[241] = 999
+    raw = [0] * 117
+    raw[112] = 999  # 0x00F4 -> first register of the last read block
     result = parse_raw(raw)
     assert result["Mode Status"] == "Unknown (999)"
 
@@ -589,7 +589,7 @@ from custom_components.deye_inverter import InverterDataParser as parser
 
 
 def test_load_definitions_json_error(monkeypatch):
-    monkeypatch.setattr(parser.pkg_resources, "read_text", lambda *a, **k: "{bad: json")
+    monkeypatch.setattr(parser.Path, "read_text", lambda *a, **k: "{bad: json")
     result = parser._load_definitions()
     assert result == {}
 

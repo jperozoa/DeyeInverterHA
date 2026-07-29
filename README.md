@@ -75,6 +75,21 @@ All entities are grouped under one **Deye Inverter** device.
 ### Production Sensor
 *Production* — current PV output as a percentage of the installed power you configured (e.g. 800 W of 5 kW → 16 %).
 
+### Computed Power Sensors
+Derived from the raw metrics so you don't need template helpers for the basic
+power flow:
+
+| Sensor | Meaning |
+|---|---|
+| *Home Consumption* | PV + grid + battery — what the house is drawing right now |
+| *Grid Import* | grid power when importing, otherwise 0 |
+| *Grid Export* | grid power when exporting, otherwise 0 |
+
+`Total Grid Power` and `Battery Power` are signed (**+** import / discharge,
+**−** export / charge); the split sensors above are the positive-only form that
+live power-flow cards expect. All three report *unavailable* rather than a
+misleading zero when one of their source metrics is missing.
+
 > **Breaking change:** this sensor no longer exposes the inverter metrics as
 > `extra_state_attributes`. Templates reading attributes from it must switch to
 > the dedicated per-metric sensors below. Status values are now plain strings

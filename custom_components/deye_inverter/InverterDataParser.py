@@ -39,39 +39,50 @@ def register_index(reg: int) -> Optional[int]:
 
 _DEFINITIONS = _load_definitions()
 
-_ENUM_MAPPINGS: Dict[Tuple[int, str], Dict[int, str]] = {}
-_sections: Sequence[Dict[str, Any]] = (
-    list(_DEFINITIONS.values())
-    if isinstance(_DEFINITIONS, dict)
-    else _DEFINITIONS  # type: ignore[assignment]
-)
 
-# Only build enums if valid optionRanges exist AND interactionType == 2
-for section in _sections:
-    for item in section.get("items", []):
-        option_ranges = item.get("optionRanges")
-        if (
-            isinstance(option_ranges, list)
-            and option_ranges
-            and item.get("interactionType") == 2
-        ):
-            title = item.get("titleEN")
-            if not title:
-                continue
+def _build_enum_mappings(
+    definitions: Union[Dict[str, Any], List[Any]],
+) -> Dict[Tuple[int, str], Dict[int, str]]:
+    """Build (register, title) -> {key: label} from optionRanges."""
+    mappings: Dict[Tuple[int, str], Dict[int, str]] = {}
+    sections: Sequence[Dict[str, Any]] = (
+        list(definitions.values())
+        if isinstance(definitions, dict)
+        else definitions  # type: ignore[assignment]
+    )
 
-            mapping: Dict[int, str] = {}
-            for opt in option_ranges:
-                key = opt.get("key")
-                val = opt.get("valueEN")
-                if isinstance(key, int) and isinstance(val, str):
-                    mapping[key] = val
-
-            for reg_hex in item.get("registers", []):
-                try:
-                    reg = int(reg_hex, 16)
-                    _ENUM_MAPPINGS[(reg, title)] = mapping
-                except (ValueError, TypeError):
+    # Only build enums if valid optionRanges exist AND interactionType == 2
+    for section in sections:
+        for item in section.get("items", []):
+            option_ranges = item.get("optionRanges")
+            if (
+                isinstance(option_ranges, list)
+                and option_ranges
+                and item.get("interactionType") == 2
+            ):
+                title = item.get("titleEN")
+                if not title:
                     continue
+
+                mapping: Dict[int, str] = {}
+                for opt in option_ranges:
+                    key = opt.get("key")
+                    # Some items label their options "value" instead of
+                    # "valueEN" (e.g. Work Mode, Time of use)
+                    val = opt.get("valueEN") or opt.get("value")
+                    if isinstance(key, int) and isinstance(val, str):
+                        mapping[key] = val
+
+                for reg_hex in item.get("registers", []):
+                    try:
+                        reg = int(reg_hex, 16)
+                        mappings[(reg, title)] = mapping
+                    except (ValueError, TypeError):
+                        continue
+    return mappings
+
+
+_ENUM_MAPPINGS = _build_enum_mappings(_DEFINITIONS)
 
 
 def combine_registers(
@@ -195,6 +206,18 @@ def parse_raw(raw: Sequence[Optional[int]]) -> Dict[str, Any]:
 
                 # Custom logic overrides
                 reg_key = int(registers[0], 16)
+                if reg_key == 0x00F4 and title == "Work Mode" and len(block) == 2:
+                    # 0x00F4 = mode (0 selling first, 1 zero-export to load,
+                    # 2 zero-export to home), 0x00F7 = solar sell flag. The
+                    # optionRanges keys encode the pair: with solar sell the
+                    # mode keeps its key, without it the key is shifted by 2.
+                    mode, solar_sell = block
+                    key = 0 if mode == 0 else (mode if solar_sell else mode + 2)
+                    wm_mapping = _ENUM_MAPPINGS.get((reg_key, title), {})
+                    result[title] = wm_mapping.get(
+                        key, f"Unknown ({mode}/{solar_sell})"
+                    )
+                    continue
                 if reg_key == 0x00BE and title == "Battery Status":
                     result[title] = parse_battery_status(raw_int)
                     continue

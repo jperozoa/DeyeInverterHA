@@ -129,9 +129,17 @@ history; new installations name it `sensor.deye_inverter_<serial>_power`.
 
 ### PV Strings
 PV1 and PV2 are always present. *PV3* and *PV4* voltage, current and power
-appear only when the inverter reports that many MPPTs (see *Device MPPTs*), so
-a two-string inverter gets no entities stuck at zero. If the inverter does not
-expose its MPPT count, all strings are created.
+appear only on inverters with that many strings.
+
+The count starts from the number of MPPT inputs the inverter reports
+(*Device MPPTs*), which can be more than you actually use: an input with no
+panels wired to it still reports a watt or two of leakage. So it is a setting —
+**Settings → Devices & Services → Deye Inverter → Configure → PV strings** —
+which you can lower to the number of strings you have connected.
+
+Inputs beyond that count are excluded from the aggregate and *Production*
+sensors too, so an unused input never inflates your production figures. Raise
+it again when you wire up another string.
 
 ### Production Sensor
 *Production* — current PV output as a percentage of the installed power you configured (e.g. 800 W of 5 kW → 16 %). Uses the same all-string total as the aggregate sensor.

@@ -10,6 +10,12 @@ CONF_PORT = "port"
 CONF_SERIAL = "serial"
 CONF_INSTALLED_POWER = "installed_power"
 CONF_MOD = "mod"
+CONF_MPPTS = "mppts"
+
+# Highest number of PV strings the definitions cover, and the count assumed
+# when neither the setting nor the inverter can tell us
+MAX_PV_INPUTS = 4
+DEFAULT_PV_STRINGS = 2
 
 # Scaling variant of the inverter ("mod"), used as the index into the
 # per-variant ratio lists in DYRealTime.txt. The protocol documentation only

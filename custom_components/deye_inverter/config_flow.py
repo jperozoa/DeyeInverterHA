@@ -1,5 +1,5 @@
 import logging
-from typing import Any
+from typing import Any, Optional
 
 import voluptuous as vol
 from homeassistant import config_entries
@@ -17,7 +17,10 @@ from .const import (
     CONF_SERIAL,
     CONF_INSTALLED_POWER,
     CONF_MOD,
+    CONF_MPPTS,
     DEFAULT_MOD,
+    DEFAULT_PV_STRINGS,
+    MAX_PV_INPUTS,
     MOD_VARIANTS,
 )
 from .InverterData import DeviceCapabilities, test_connection
@@ -50,6 +53,14 @@ DATA_SCHEMA = vol.Schema(
         vol.Optional(CONF_MOD, default=MOD_AUTO): _mod_selector(include_auto=True),
     }
 )
+
+
+def _detected_strings(capabilities: Any) -> Optional[int]:
+    """The MPPT count to start from, if the inverter reports a usable one."""
+    mppts = capabilities.mppts if isinstance(capabilities, DeviceCapabilities) else None
+    if isinstance(mppts, int) and 1 <= mppts <= MAX_PV_INPUTS:
+        return mppts
+    return None
 
 
 def _resolve_mod(selected: Any, capabilities: Any) -> int:
@@ -115,6 +126,9 @@ class DeyeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     data[CONF_MOD] = _resolve_mod(
                         data.get(CONF_MOD, MOD_AUTO), capabilities
                     )
+                    detected = _detected_strings(capabilities)
+                    if detected is not None:
+                        data[CONF_MPPTS] = detected
                     return self.async_create_entry(
                         title=user_input[CONF_SERIAL],
                         data=data,
@@ -132,12 +146,17 @@ class DeyeOptionsFlow(config_entries.OptionsFlow):
     """Change the scaling variant of an existing inverter."""
 
     async def async_step_init(self, user_input=None):
+        entry = self.config_entry
         if user_input is not None:
             return self.async_create_entry(
-                data={CONF_MOD: normalize_mod(user_input.get(CONF_MOD, DEFAULT_MOD))}
+                data={
+                    CONF_MOD: normalize_mod(user_input.get(CONF_MOD, DEFAULT_MOD)),
+                    CONF_MPPTS: int(
+                        user_input.get(CONF_MPPTS, self._current_strings())
+                    ),
+                }
             )
 
-        entry = self.config_entry
         current = normalize_mod(
             entry.options.get(CONF_MOD, entry.data.get(CONF_MOD, DEFAULT_MOD))
         )
@@ -147,7 +166,38 @@ class DeyeOptionsFlow(config_entries.OptionsFlow):
                 {
                     vol.Optional(CONF_MOD, default=str(current)): _mod_selector(
                         include_auto=False
-                    )
+                    ),
+                    vol.Optional(CONF_MPPTS, default=self._current_strings()): vol.All(
+                        vol.Coerce(int), vol.Range(min=1, max=MAX_PV_INPUTS)
+                    ),
                 }
             ),
         )
+
+    def _current_strings(self) -> int:
+        """The configured string count, else the inverter's MPPT count.
+
+        Entries created before this setting existed have nothing stored, so
+        fall back to what the running coordinator detected rather than to an
+        arbitrary number.
+        """
+        entry = self.config_entry
+        for value in (
+            entry.options.get(CONF_MPPTS, entry.data.get(CONF_MPPTS)),
+            self._detected_strings_from_coordinator(),
+        ):
+            try:
+                strings = int(value)  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                continue
+            if 1 <= strings <= MAX_PV_INPUTS:
+                return strings
+        return DEFAULT_PV_STRINGS
+
+    def _detected_strings_from_coordinator(self) -> Any:
+        """The MPPT count from the last refresh, if the entry is loaded."""
+        try:
+            coordinator = self.hass.data[DOMAIN][self.config_entry.entry_id]
+            return (coordinator.data or {}).get("Device MPPTs")
+        except (AttributeError, KeyError, TypeError):
+            return None

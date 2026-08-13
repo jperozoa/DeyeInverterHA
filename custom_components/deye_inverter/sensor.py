@@ -13,7 +13,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import DOMAIN, MAX_PV_INPUTS
 from .coordinator import DeyeDataUpdateCoordinator
 from .entity_descriptions import DeyeSensorDescription, build_descriptions
 
@@ -21,19 +21,21 @@ _LOGGER = logging.getLogger(__name__)
 
 ATTRIBUTION = "Data provided by Deye inverter via Modbus TCP"
 
-# Highest string count the definitions cover
-MAX_PV_INPUTS = 4
 
-
-def total_pv_power(data: Optional[dict[str, Any]]) -> Optional[float]:
-    """Sum the PV power of every string the inverter reports.
+def total_pv_power(
+    data: Optional[dict[str, Any]], strings: Optional[int] = None
+) -> Optional[float]:
+    """Sum the PV power of the strings this inverter actually has.
 
     Inverters with a third or fourth MPPT would otherwise have part of
-    their array missing from the aggregates. A value that is present but
-    unusable makes the total unknown rather than silently too low.
+    their array missing from the aggregates. Inputs beyond `strings` are
+    ignored: an unused input still reports a watt or two of leakage, which
+    must not land in the total. A value that is present but unusable makes
+    the total unknown rather than silently too low.
     """
+    limit = MAX_PV_INPUTS if strings is None else min(int(strings), MAX_PV_INPUTS)
     total = 0.0
-    for n in range(1, MAX_PV_INPUTS + 1):
+    for n in range(1, limit + 1):
         value = (data or {}).get(f"PV{n} Power")
         if value is None:
             continue
@@ -44,8 +46,14 @@ def total_pv_power(data: Optional[dict[str, Any]]) -> Optional[float]:
     return total
 
 
-def _detected_mppts(coordinator: DeyeDataUpdateCoordinator) -> Optional[int]:
-    """The MPPT count the inverter reported on the first refresh, if any."""
+def detected_mppts(coordinator: DeyeDataUpdateCoordinator) -> Optional[int]:
+    """The MPPT count the inverter claims, from the first refresh.
+
+    This is how many MPPT inputs the inverter has, which can exceed the
+    number of strings actually wired to it: an input with no panels still
+    reports a watt or two of leakage. Treat it as the starting point the
+    user can correct, not as the number of strings in use.
+    """
     data = getattr(coordinator, "data", None)
     value = data.get("Device MPPTs") if isinstance(data, dict) else None
     if not isinstance(value, (int, float, str)):
@@ -56,6 +64,14 @@ def _detected_mppts(coordinator: DeyeDataUpdateCoordinator) -> Optional[int]:
         return None
     # 0 means the register is there but carries nothing useful
     return mppts if 1 <= mppts <= MAX_PV_INPUTS else None
+
+
+def configured_strings(coordinator: DeyeDataUpdateCoordinator) -> Optional[int]:
+    """How many PV strings to expose: the setting, else the MPPT count."""
+    configured = getattr(coordinator, "pv_strings", None)
+    if isinstance(configured, int) and 1 <= configured <= MAX_PV_INPUTS:
+        return configured
+    return detected_mppts(coordinator)
 
 
 def _inverter_device_info(coordinator: DeyeDataUpdateCoordinator) -> DeviceInfo:
@@ -81,7 +97,7 @@ async def async_setup_entry(
     entities.extend(
         DeyeMetricSensor(coordinator, description)
         for description in build_descriptions(
-            getattr(coordinator, "profile", None), _detected_mppts(coordinator)
+            getattr(coordinator, "profile", None), configured_strings(coordinator)
         )
     )
     async_add_entities(entities, update_before_add=False)
@@ -109,7 +125,9 @@ class DeyeInverterSensor(CoordinatorEntity[DeyeDataUpdateCoordinator], SensorEnt
     @property
     def native_value(self) -> float:
         """Return the total PV power across every string."""
-        total = total_pv_power(self.coordinator.data)
+        total = total_pv_power(
+            self.coordinator.data, configured_strings(self.coordinator)
+        )
         return 0.0 if total is None else total
 
     @property
@@ -151,7 +169,9 @@ class DeyeProductionPercentSensor(
         if installed_w <= 0:
             return None
 
-        pv_power = total_pv_power(self.coordinator.data)
+        pv_power = total_pv_power(
+            self.coordinator.data, configured_strings(self.coordinator)
+        )
         if pv_power is None:
             return None
         return round(pv_power / installed_w * 100, 1)

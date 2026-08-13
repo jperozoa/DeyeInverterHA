@@ -7,7 +7,6 @@ from custom_components.deye_inverter.const import (
     CONF_SERIAL,
     CONF_INSTALLED_POWER,
     CONF_MOD,
-    CONF_MPPTS,
     DEFAULT_MOD,
 )
 
@@ -193,84 +192,3 @@ async def test_duplicate_serial_aborts(hass):
 
     assert second["type"] == "abort"
     assert second["reason"] == "already_configured"
-
-
-async def test_string_count_is_seeded_from_detection(hass):
-    """The inverter's MPPT count becomes the starting point for the setting."""
-    from custom_components.deye_inverter.InverterData import DeviceCapabilities
-
-    with patch(
-        "custom_components.deye_inverter.config_flow.test_connection",
-        return_value=DeviceCapabilities(rated_power=10000.0, mppts=3, phases=1),
-    ):
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": "user"}, data=USER_INPUT
-        )
-
-    assert result["data"][CONF_MPPTS] == 3
-
-
-async def test_options_flow_corrects_the_string_count(hass):
-    """3 MPPT inputs with only 2 strings wired can be corrected."""
-    from custom_components.deye_inverter.InverterData import DeviceCapabilities
-
-    with patch(
-        "custom_components.deye_inverter.config_flow.test_connection",
-        return_value=DeviceCapabilities(rated_power=10000.0, mppts=3, phases=1),
-    ):
-        created = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": "user"}, data=USER_INPUT
-        )
-    entry = hass.config_entries.async_get_entry(created["result"].entry_id)
-
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    # The form opens on the detected count
-    assert result["data_schema"]({})[CONF_MPPTS] == 3
-
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], user_input={CONF_MOD: "2", CONF_MPPTS: 2}
-    )
-
-    assert result["type"] == "create_entry"
-    assert entry.options[CONF_MPPTS] == 2
-    assert entry.options[CONF_MOD] == 2
-
-
-async def test_string_count_is_left_unset_when_undetected(hass):
-    """Devices that do not report their MPPT count store no override."""
-    from custom_components.deye_inverter.InverterData import DeviceCapabilities
-
-    with patch(
-        "custom_components.deye_inverter.config_flow.test_connection",
-        return_value=DeviceCapabilities(),
-    ):
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": "user"}, data=USER_INPUT
-        )
-
-    assert CONF_MPPTS not in result["data"]
-
-
-async def test_options_flow_falls_back_to_the_detected_count(hass):
-    """Entries predating the setting open on what the inverter reported."""
-    from custom_components.deye_inverter.InverterData import DeviceCapabilities
-    from unittest.mock import MagicMock
-
-    with patch(
-        "custom_components.deye_inverter.config_flow.test_connection",
-        return_value=DeviceCapabilities(rated_power=10000.0),  # no MPPT count
-    ):
-        created = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": "user"}, data=USER_INPUT
-        )
-    entry = hass.config_entries.async_get_entry(created["result"].entry_id)
-    assert CONF_MPPTS not in entry.data
-
-    # A loaded coordinator that has since detected 3 MPPTs
-    coordinator = MagicMock()
-    coordinator.data = {"Device MPPTs": 3.0}
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
-
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-
-    assert result["data_schema"]({})[CONF_MPPTS] == 3

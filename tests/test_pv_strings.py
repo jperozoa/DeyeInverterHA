@@ -11,8 +11,7 @@ from custom_components.deye_inverter.InverterDataParser import parse_raw, regist
 from custom_components.deye_inverter.sensor import (
     DeyeInverterSensor,
     DeyeProductionPercentSensor,
-    configured_strings,
-    detected_mppts,
+    _detected_mppts,
     total_pv_power,
 )
 
@@ -34,7 +33,6 @@ def mock_coordinator():
     coordinator.serial = "ABC123"
     coordinator.installed_power = 10
     coordinator.data = {}
-    coordinator.pv_strings = None
     return coordinator
 
 
@@ -166,51 +164,10 @@ def test_production_percent_uses_every_string(mock_coordinator):
 )
 def test_detected_mppts(mock_coordinator, reported, expected):
     mock_coordinator.data = {"Device MPPTs": reported}
-    assert detected_mppts(mock_coordinator) == expected
+    assert _detected_mppts(mock_coordinator) == expected
 
 
 def test_detected_mppts_without_data(mock_coordinator):
     """A coordinator that has not refreshed yet detects nothing."""
     mock_coordinator.data = None
-    assert detected_mppts(mock_coordinator) is None
-
-
-def test_configured_count_overrides_the_mppt_count():
-    """3 MPPT inputs, 2 of them wired: the setting wins."""
-    coordinator = MagicMock(spec=DataUpdateCoordinator)
-    coordinator.data = {"Device MPPTs": 3.0}
-    coordinator.pv_strings = 2
-
-    assert detected_mppts(coordinator) == 3
-    assert configured_strings(coordinator) == 2
-
-
-def test_configured_count_falls_back_to_detection():
-    coordinator = MagicMock(spec=DataUpdateCoordinator)
-    coordinator.data = {"Device MPPTs": 3.0}
-    coordinator.pv_strings = None
-
-    assert configured_strings(coordinator) == 3
-
-
-def test_unused_input_leakage_stays_out_of_the_total(mock_coordinator):
-    """An MPPT input with no panels reports ~1 W, which must not be counted."""
-    mock_coordinator.data = {
-        "PV1 Power": 1075.0,
-        "PV2 Power": 1353.0,
-        "PV3 Power": 1.0,  # leakage on an MPPT input with no panels
-    }
-    mock_coordinator.pv_strings = 2
-
-    assert DeyeInverterSensor(mock_coordinator).native_value == pytest.approx(2428.0)
-    assert DeyeProductionPercentSensor(mock_coordinator).native_value == pytest.approx(
-        24.3
-    )
-
-
-def test_total_pv_power_respects_the_string_count():
-    data = {f"PV{n} Power": 100.0 for n in range(1, 5)}
-    assert total_pv_power(data, 2) == pytest.approx(200)
-    assert total_pv_power(data, 4) == pytest.approx(400)
-    assert total_pv_power(data, 9) == pytest.approx(400)
-    assert total_pv_power(data, None) == pytest.approx(400)
+    assert _detected_mppts(mock_coordinator) is None

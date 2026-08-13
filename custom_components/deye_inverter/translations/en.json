@@ -30,12 +30,10 @@
         "title": "Deye inverter options",
         "description": "Change the power scaling variant if load, grid and CT power read ten times too low (or too high) compared with your meter.",
         "data": {
-          "mod": "Power scaling variant",
-          "mppts": "PV strings"
+          "mod": "Power scaling variant"
         },
         "data_description": {
-          "mod": "Check it with the balance PV output ≈ load + grid + battery: it only adds up on the right variant. The integration reloads when you save.",
-          "mppts": "How many PV inputs have panels wired to them. This starts from the number of MPPT inputs the inverter reports, which can be more than you actually use — lower it to drop entities for strings you have not connected."
+          "mod": "Check it with the balance PV output ≈ load + grid + battery: it only adds up on the right variant. The integration reloads when you save."
         }
       }
     }

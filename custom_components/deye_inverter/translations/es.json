@@ -30,12 +30,10 @@
         "title": "Opciones del inversor Deye",
         "description": "Cambia la variante de escalado si la potencia de consumo, red y CT sale diez veces más baja (o más alta) que en tu contador.",
         "data": {
-          "mod": "Variante de escalado de potencia",
-          "mppts": "Strings de PV"
+          "mod": "Variante de escalado de potencia"
         },
         "data_description": {
-          "mod": "Compruébalo con el balance producción PV ≈ consumo + red + batería: solo cuadra con la variante correcta. La integración se recarga al guardar.",
-          "mppts": "Cuántas entradas de PV tienen paneles conectados. Parte del número de entradas MPPT que reporta el inversor, que puede ser mayor de las que usas: bájalo para quitar las entidades de los strings que no has conectado."
+          "mod": "Compruébalo con el balance producción PV ≈ consumo + red + batería: solo cuadra con la variante correcta. La integración se recarga al guardar."
         }
       }
     }

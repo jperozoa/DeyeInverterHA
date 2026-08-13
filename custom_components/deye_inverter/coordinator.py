@@ -1,6 +1,6 @@
 import logging
 from datetime import timedelta
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
@@ -8,27 +8,11 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from pysolarmanv5.pysolarmanv5 import NoSocketAvailableError
 
-from .const import (
-    CONF_MOD,
-    CONF_MPPTS,
-    DEFAULT_MOD,
-    DOMAIN,
-    DEFAULT_SCAN_INTERVAL,
-    MAX_PV_INPUTS,
-)
+from .const import CONF_MOD, DEFAULT_MOD, DOMAIN, DEFAULT_SCAN_INTERVAL
 from .InverterData import InverterData
 from .profiles import Profile, get_profile, normalize_mod
 
 _LOGGER = logging.getLogger(__name__)
-
-
-def _pv_strings(value: Any) -> Optional[int]:
-    """Coerce a configured string count, ignoring anything out of range."""
-    try:
-        strings = int(value)
-    except (TypeError, ValueError):
-        return None
-    return strings if 1 <= strings <= MAX_PV_INPUTS else None
 
 
 class DeyeDataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
@@ -57,11 +41,6 @@ class DeyeDataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             options.get(CONF_MOD, config_entry.data.get(CONF_MOD, DEFAULT_MOD))
         )
         self.profile: Profile = get_profile(self.mod)
-        # How many PV strings are actually wired, which can be fewer than
-        # the inverter's MPPT inputs, so the detected count is only a default.
-        self.pv_strings = _pv_strings(
-            options.get(CONF_MPPTS, config_entry.data.get(CONF_MPPTS))
-        )
         self._last_known_data: Dict[str, Any] = {}
         # Created lazily in _async_update_data: the constructor opens a
         # socket, which must not run in the event loop.

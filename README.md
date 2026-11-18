@@ -21,6 +21,7 @@ It creates **one sensor entity per inverter metric** (40+ entities), all grouped
 - 📊 One entity per metric (40+ sensors) with device/state classes and statistics
 - ⚡ Energy dashboard support (kWh sensors with `total_increasing`)
 - 💡 Works offline — no cloud dependency
+- 🎛️ Controls for the work mode and the time-of-use program
 
 ---
 
@@ -160,6 +161,33 @@ Available metrics:
 
 The battery Daily/Total Charge and Discharge sensors can be used in the Energy
 dashboard's battery section.
+
+## Controls
+
+Two settings can be changed from Home Assistant. Both appear in the
+*Configuration* section of the device page and write straight to the inverter
+over the same Modbus connection the sensors use.
+
+| Entity | Type | Registers | What it does |
+|---|---|---|---|
+| *Work Mode* | select | `0x00F4`, `0x00F7` | Selling First, or one of the four zero-export modes (to load / to home, with or without solar sell) |
+| *Time of Use* | switch | `0x00F8` bit 0 | Enables or disables the inverter's time-of-use program |
+
+Every write is read back and compared, and the entity only changes state once
+the next poll confirms the inverter took the new value. A refused or
+mismatched write raises an error in the UI instead of pretending it worked.
+The *Time of Use* switch touches only the enable bit, so the weekday bits that
+share the register keep their values.
+
+Notes:
+
+- These change the inverter's persistent configuration, exactly as the Solarman
+  app does. They are not simulations; check the effect on your system before
+  wiring them into automations.
+- The datalogger accepts one TCP client at a time, so a write fails while the
+  Solarman app or cloud holds the connection.
+- The time-of-use schedule itself (time slots, power and SOC limits, grid
+  charge flags) is not exposed yet; configure it in the app for now.
 
 ## Energy Dashboard
 

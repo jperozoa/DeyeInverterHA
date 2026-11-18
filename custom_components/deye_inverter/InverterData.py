@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from pysolarmanv5.pysolarmanv5 import PySolarmanV5, NoSocketAvailableError
 
@@ -19,6 +19,10 @@ _LOGGER = logging.getLogger(__name__)
 
 class ModbusReadError(Exception):
     """Raised when reading registers from the inverter fails."""
+
+
+class ModbusWriteError(Exception):
+    """Raised when a write is refused, fails, or does not read back."""
 
 
 def _block_report(
@@ -128,6 +132,9 @@ class InverterData:
         # each block fared
         self.last_raw: List[Optional[int]] = []
         self.last_blocks: List[Dict[str, Any]] = []
+        # The datalogger speaks to one client over one socket: a write must
+        # not interleave with the register reads of a poll in progress.
+        self._lock = asyncio.Lock()
 
         try:
             self._modbus = PySolarmanV5(
@@ -146,6 +153,10 @@ class InverterData:
 
     async def fetch_data(self) -> Dict[str, Any]:
         """Reads the register blocks and returns the parsed dictionary."""
+        async with self._lock:
+            return await self._read_all()
+
+    async def _read_all(self) -> Dict[str, Any]:
         loop = asyncio.get_running_loop()
 
         def read_block(addr: int, length: int) -> list[int]:
@@ -207,6 +218,81 @@ class InverterData:
         self.last_blocks = blocks
 
         return parse_raw(raw, self._profile)
+
+    async def write_registers(self, addr: int, values: Sequence[int]) -> None:
+        """Write consecutive holding registers and verify them by reading back.
+
+        Raises ModbusWriteError if the inverter refuses the write or reports
+        different values afterwards, so a caller never believes a setting
+        changed when it did not.
+        """
+        values = [int(v) for v in values]
+        if not values:
+            raise ModbusWriteError("Nothing to write")
+        for value in values:
+            if not 0 <= value <= 0xFFFF:
+                raise ModbusWriteError(
+                    f"Register 0x{addr:04X}: {value} is not a 16-bit value"
+                )
+        loop = asyncio.get_running_loop()
+        async with self._lock:
+            await loop.run_in_executor(None, self._write_and_verify, addr, values)
+
+    async def update_register(self, addr: int, mask: int, value: int) -> int:
+        """Change only the bits under ``mask`` of one register.
+
+        Reads the register, replaces the masked bits with those of ``value``,
+        and writes the result back, all under the one lock so no poll runs in
+        between. Returns the value written. Used for registers that pack
+        several settings into one word, such as the time-of-use enable.
+        """
+        loop = asyncio.get_running_loop()
+        async with self._lock:
+            current = await loop.run_in_executor(None, self._read_one, addr)
+            new = (current & ~mask & 0xFFFF) | (value & mask)
+            if new != current:
+                await loop.run_in_executor(None, self._write_and_verify, addr, [new])
+            return new
+
+    def _read_one(self, addr: int) -> int:
+        """Read a single holding register (blocking)."""
+        try:
+            regs = self._modbus.read_holding_registers(register_addr=addr, quantity=1)
+        except Exception as e:
+            raise ModbusWriteError(f"Register 0x{addr:04X}: read failed: {e}") from e
+        if len(regs) != 1:
+            raise ModbusWriteError(
+                f"Register 0x{addr:04X}: asked for 1 register, got {len(regs)}"
+            )
+        return int(regs[0])
+
+    def _write_and_verify(self, addr: int, values: List[int]) -> None:
+        """Write registers and read them back (blocking)."""
+        try:
+            if len(values) == 1:
+                self._modbus.write_holding_register(register_addr=addr, value=values[0])
+            else:
+                self._modbus.write_multiple_holding_registers(
+                    register_addr=addr, values=values
+                )
+        except Exception as e:
+            raise ModbusWriteError(f"Register 0x{addr:04X}: write failed: {e}") from e
+        _LOGGER.debug("Wrote registers 0x%04X: %s", addr, values)
+
+        try:
+            readback = list(
+                self._modbus.read_holding_registers(
+                    register_addr=addr, quantity=len(values)
+                )
+            )
+        except Exception as e:
+            raise ModbusWriteError(
+                f"Register 0x{addr:04X}: written but could not be read back: {e}"
+            ) from e
+        if readback != values:
+            raise ModbusWriteError(
+                f"Register 0x{addr:04X}: wrote {values}, inverter reports {readback}"
+            )
 
     async def _trigger_reload(self):
         if not self._hass or not self._config_entry:

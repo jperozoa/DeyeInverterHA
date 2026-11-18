@@ -38,3 +38,12 @@ OPTIONAL_REGISTER_BLOCKS = [
 # it only preselects the variant — the user always has the final say.
 TEN_WATT_UNITS_FROM_RATED_POWER = 10000
 REGISTER_BLOCKS = CORE_REGISTER_BLOCKS + OPTIONAL_REGISTER_BLOCKS
+
+# Settings the integration writes. All live in the 0x00F4-0x00F8 optional
+# block, so the sensors read back whatever a write changed on the next poll.
+REG_WORK_MODE = 0x00F4  # 0 selling first, 1 zero-export to load, 2 to CT
+REG_SOLAR_SELL = 0x00F7  # 0 off, 1 on; only meaningful in a zero-export mode
+REG_TIME_OF_USE = 0x00F8  # bit 0 enables the time-of-use program
+TIME_OF_USE_ENABLE_MASK = 0x0001
+
+PLATFORMS = ["sensor", "select", "switch"]

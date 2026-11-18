@@ -192,6 +192,31 @@ def parse_gen_connected_status(value: int) -> str:
     return "On" if value == 1 else "Off"
 
 
+# Work Mode is one setting spread over two registers: 0x00F4 holds the mode
+# (0 selling first, 1 zero-export to load, 2 zero-export to home/CT) and
+# 0x00F7 the solar sell flag. The optionRanges keys encode the pair: with
+# solar sell the mode keeps its key, without it the key is shifted by 2.
+# Selling first always sells, so the flag plays no part in it.
+def work_mode_key(mode: int, solar_sell: int) -> int:
+    """Map the (mode, solar sell) register pair onto a Work Mode option key."""
+    return 0 if mode == 0 else (mode if solar_sell else mode + 2)
+
+
+def work_mode_registers(key: int) -> Tuple[int, Optional[int]]:
+    """Map a Work Mode option key back onto (mode, solar sell).
+
+    The inverse of :func:`work_mode_key`. Selling first returns ``None`` for
+    the flag, since it is irrelevant there and better left untouched.
+    """
+    if key == 0:
+        return 0, None
+    if key in (1, 2):
+        return key, 1
+    if key in (3, 4):
+        return key - 2, 0
+    raise ValueError(f"Unknown Work Mode option key: {key}")
+
+
 def parse_raw(
     raw: Sequence[Optional[int]], profile: Optional["Profile"] = None
 ) -> Dict[str, Any]:
@@ -284,12 +309,8 @@ def parse_raw(
                 # Custom logic overrides
                 reg_key = int(registers[0], 16)
                 if reg_key == 0x00F4 and title == "Work Mode" and len(block) == 2:
-                    # 0x00F4 = mode (0 selling first, 1 zero-export to load,
-                    # 2 zero-export to home), 0x00F7 = solar sell flag. The
-                    # optionRanges keys encode the pair: with solar sell the
-                    # mode keeps its key, without it the key is shifted by 2.
                     mode, solar_sell = block
-                    key = 0 if mode == 0 else (mode if solar_sell else mode + 2)
+                    key = work_mode_key(mode, solar_sell)
                     wm_mapping = enum_mappings.get((reg_key, title), {})
                     result[title] = wm_mapping.get(
                         key, f"Unknown ({mode}/{solar_sell})"

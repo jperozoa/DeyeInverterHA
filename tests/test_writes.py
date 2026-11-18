@@ -1,13 +1,16 @@
 """Register writes: the client's write path and the coordinator wrapper."""
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.deye_inverter.coordinator import DeyeDataUpdateCoordinator
+from pysolarmanv5.pysolarmanv5 import NoSocketAvailableError
+
 from custom_components.deye_inverter.InverterData import (
     InverterData,
+    ModbusReadError,
     ModbusWriteError,
 )
 from custom_components.deye_inverter.InverterDataParser import (
@@ -19,13 +22,17 @@ from custom_components.deye_inverter.InverterDataParser import (
 
 
 @pytest.fixture
-def modbus():
+def modbus_class():
     with patch(
         "custom_components.deye_inverter.InverterData.PySolarmanV5"
     ) as mock_class:
-        instance = MagicMock()
-        mock_class.return_value = instance
-        yield instance
+        mock_class.return_value = MagicMock()
+        yield mock_class
+
+
+@pytest.fixture
+def modbus(modbus_class):
+    return modbus_class.return_value
 
 
 @pytest.fixture
@@ -40,14 +47,16 @@ async def test_write_single_register_uses_function_16(inverter, modbus):
     """Deye refuses function 6, so even one register goes as write-multiple."""
     modbus.read_holding_registers.return_value = [1]
 
-    await inverter.write_registers(0x00F4, [1])
+    assert await inverter.write_registers(0x00F4, [1]) == [1]
 
     modbus.write_multiple_holding_registers.assert_called_once_with(
         register_addr=0x00F4, values=[1]
     )
-    modbus.read_holding_registers.assert_called_once_with(
-        register_addr=0x00F4, quantity=1
-    )
+    # Once before the write (to tell "adjusted" from "ignored"), once after
+    assert modbus.read_holding_registers.call_args_list == [
+        call(register_addr=0x00F4, quantity=1),
+        call(register_addr=0x00F4, quantity=1),
+    ]
 
 
 async def test_write_multiple_registers_and_verify(inverter, modbus):
@@ -60,25 +69,42 @@ async def test_write_multiple_registers_and_verify(inverter, modbus):
     )
 
 
-async def test_write_readback_mismatch_raises(inverter, modbus):
+async def test_write_ignored_by_inverter_raises(inverter, modbus):
+    """Unchanged after the write means the inverter did not take it."""
     modbus.read_holding_registers.return_value = [0]
 
-    with pytest.raises(ModbusWriteError, match="inverter reports"):
+    with pytest.raises(ModbusWriteError, match="kept \\[0\\], ignoring \\[2\\]"):
         await inverter.write_registers(0x00F4, [2])
 
 
+async def test_write_adjusted_by_inverter_counts_as_written(inverter, modbus):
+    """A start time of 01:27 is stored as 01:25: changed, so written."""
+    modbus.read_holding_registers.side_effect = [[100], [125]]
+
+    assert await inverter.write_registers(0x00FA, [127]) == [125]
+
+
 async def test_write_library_error_is_wrapped(inverter, modbus):
+    modbus.read_holding_registers.return_value = [0]
     modbus.write_multiple_holding_registers.side_effect = RuntimeError("timeout")
 
     with pytest.raises(ModbusWriteError, match="write failed"):
         await inverter.write_registers(0x00F4, [2])
-    modbus.read_holding_registers.assert_not_called()
+    modbus.read_holding_registers.assert_called_once()
+
+
+async def test_write_read_before_error_is_wrapped(inverter, modbus):
+    modbus.read_holding_registers.side_effect = RuntimeError("timeout")
+
+    with pytest.raises(ModbusWriteError, match="read before write failed"):
+        await inverter.write_registers(0x00F4, [2])
+    modbus.write_multiple_holding_registers.assert_not_called()
 
 
 async def test_write_readback_error_is_wrapped(inverter, modbus):
-    modbus.read_holding_registers.side_effect = RuntimeError("timeout")
+    modbus.read_holding_registers.side_effect = [[0], RuntimeError("timeout")]
 
-    with pytest.raises(ModbusWriteError, match="could not be read back"):
+    with pytest.raises(ModbusWriteError, match="read back after write failed"):
         await inverter.write_registers(0x00F4, [2])
 
 
@@ -89,6 +115,7 @@ async def test_write_rejects_bad_values_before_touching_the_inverter(
     with pytest.raises(ModbusWriteError):
         await inverter.write_registers(0x00F4, values)
     modbus.write_multiple_holding_registers.assert_not_called()
+    modbus.read_holding_registers.assert_not_called()
 
 
 # === InverterData.update_register ===
@@ -153,6 +180,63 @@ async def test_fetch_data_holds_the_lock(inverter, modbus):
     assert await inverter.fetch_data() == {"ok": True}
     assert seen == [True]
     assert not inverter._lock.locked()
+
+
+# === Reconnecting ===
+
+
+async def test_read_reconnects_after_socket_loss(modbus_class):
+    """A dead socket is replaced by a new client and the call retried."""
+    dead, fresh = MagicMock(), MagicMock()
+    dead.read_holding_registers.side_effect = NoSocketAvailableError(
+        "Connection already closed."
+    )
+    fresh.read_holding_registers.side_effect = lambda register_addr, quantity: [
+        0
+    ] * quantity
+    modbus_class.side_effect = [dead, fresh]
+    inverter = InverterData(host="localhost", port=8899, serial="1")
+
+    data = await inverter.fetch_data()
+
+    assert data
+    dead.disconnect.assert_called_once()
+    assert modbus_class.call_count == 2
+    assert inverter._modbus is fresh
+
+
+async def test_write_reconnects_after_socket_loss(modbus_class):
+    dead, fresh = MagicMock(), MagicMock()
+    dead.read_holding_registers.side_effect = NoSocketAvailableError("closed")
+    fresh.read_holding_registers.return_value = [7]
+    modbus_class.side_effect = [dead, fresh]
+    inverter = InverterData(host="localhost", port=8899, serial="1")
+
+    assert await inverter.write_registers(0x00F4, [7]) == [7]
+
+    fresh.write_multiple_holding_registers.assert_called_once_with(
+        register_addr=0x00F4, values=[7]
+    )
+
+
+async def test_failed_reconnect_is_retried_on_the_next_call(modbus_class):
+    """The datalogger refuses for a few seconds: fail now, try again later."""
+    dead = MagicMock()
+    dead.read_holding_registers.side_effect = NoSocketAvailableError("closed")
+    fresh = MagicMock()
+    fresh.read_holding_registers.side_effect = lambda register_addr, quantity: [
+        0
+    ] * quantity
+    modbus_class.side_effect = [dead, NoSocketAvailableError("refused"), fresh]
+    inverter = InverterData(host="localhost", port=8899, serial="1")
+
+    with pytest.raises(ModbusReadError):
+        await inverter.fetch_data()
+    assert inverter._modbus is dead
+
+    assert await inverter.fetch_data()
+    assert inverter._modbus is fresh
+    assert modbus_class.call_count == 3
 
 
 # === Coordinator wrappers ===

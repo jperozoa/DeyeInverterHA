@@ -179,8 +179,10 @@ over the same Modbus connection the sensors use.
 | *Time of Use N Generator Charge* | switch | `0x0112`+N bit 1 | Same for a generator; disabled by default in the entity registry |
 
 Every write is read back and compared, and the entity only changes state once
-the next poll confirms the inverter took the new value. A refused or
-mismatched write raises an error in the UI instead of pretending it worked.
+the next poll confirms the inverter took the new value. A refused or ignored
+write raises an error in the UI instead of pretending it worked. Values the
+inverter adjusts count as written: slot start times, for instance, are
+rounded to five-minute steps, and the entity shows what was stored.
 The *Time of Use* switch touches only the enable bit, so the weekday bits that
 share the register keep their values.
 

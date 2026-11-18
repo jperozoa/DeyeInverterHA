@@ -67,7 +67,7 @@ class DeyeTimeOfUsePower(DeyeTimeOfUseSlotEntity, NumberEntity):
     _attr_device_class = NumberDeviceClass.POWER
     _attr_native_unit_of_measurement = UnitOfPower.WATT
     _attr_native_min_value = 0
-    _attr_native_step = 100
+    _attr_native_step = 10
     _attr_mode = NumberMode.BOX
 
     @property

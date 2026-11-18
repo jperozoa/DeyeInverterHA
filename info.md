@@ -17,7 +17,7 @@ This custom integration enables seamless monitoring of Deye hybrid inverters via
    - Go to "Integrations" and click the three dots in the top right corner.
    - Select "Custom repositories" and add:
      ```
-     https://github.com/jlopez77/DeyeInverterHA
+     https://github.com/jperozoa/DeyeInverterHA
      ```
      with category "Integration".
 
@@ -37,6 +37,6 @@ This custom integration enables seamless monitoring of Deye hybrid inverters via
 
 ### 🔗 Resources
 
-- [GitHub Repository](https://github.com/jlopez77/DeyeInverterHA)
+- [GitHub Repository](https://github.com/jperozoa/DeyeInverterHA)
 - [Home Assistant Documentation](https://www.home-assistant.io/integrations/)
 

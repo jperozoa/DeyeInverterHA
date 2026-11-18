@@ -1,12 +1,12 @@
 {
   "domain": "deye_inverter",
   "name": "Deye Inverter",
-  "codeowners": ["@jlopez77"],
+  "codeowners": ["@jperozoa"],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/jlopez77/DeyeInverterHA",
+  "documentation": "https://github.com/jperozoa/DeyeInverterHA",
   "iot_class": "local_polling",
-  "issue_tracker": "https://github.com/jlopez77/DeyeInverterHA/issues",
+  "issue_tracker": "https://github.com/jperozoa/DeyeInverterHA/issues",
   "requirements": ["pysolarmanv5>=1.0.0"],
   "single_config_entry": false,
   "version": "2.0.0"

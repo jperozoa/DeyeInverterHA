@@ -2,12 +2,12 @@
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 ![Quality: Silver](https://img.shields.io/badge/Quality-Silver-silver)
-![Tests](https://github.com/jlopez77/DeyeInverterHA/actions/workflows/python-app.yml/badge.svg)
-![Coverage](https://codecov.io/gh/jlopez77/DeyeInverterHA/branch/main/graph/badge.svg)
+![Tests](https://github.com/jperozoa/DeyeInverterHA/actions/workflows/python-app.yml/badge.svg)
+![Coverage](https://codecov.io/gh/jperozoa/DeyeInverterHA/branch/main/graph/badge.svg)
 
 ## Overview
 
-This custom integration allows Home Assistant to read **real-time data** from **Deye hybrid inverters** over Modbus TCP, using a mapping file based on `DYRealTime.txt` and powered by [`PySolarmanV5`](https://github.com/jlopez77/pysolarmanv5) and `pymodbus`.
+This custom integration allows Home Assistant to read **real-time data** from **Deye hybrid inverters** over Modbus TCP, using a mapping file based on `DYRealTime.txt` and powered by [`PySolarmanV5`](https://github.com/jmccrohan/pysolarmanv5) and `pymodbus`.
 
 It creates **one sensor entity per inverter metric** (40+ entities), all grouped under a single inverter device, with proper device classes and state classes — so energy metrics work with the **Energy dashboard** and get long-term statistics.
 
@@ -38,7 +38,7 @@ This integration is **not yet in HACS**. You can install it manually for now:
 1. Download or clone this repository:
 
    ```bash
-   git clone https://github.com/jlopez77/DeyeInverterHA.git
+   git clone https://github.com/jperozoa/DeyeInverterHA.git
    ```
 
 2. Copy the folder `custom_components/deye_inverter` into your Home Assistant config directory:

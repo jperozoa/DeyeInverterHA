@@ -267,14 +267,16 @@ class InverterData:
         return int(regs[0])
 
     def _write_and_verify(self, addr: int, values: List[int]) -> None:
-        """Write registers and read them back (blocking)."""
+        """Write registers and read them back (blocking).
+
+        Always uses Modbus function 16 (write multiple registers), even for a
+        single one: Deye inverters refuse function 6 (write single register)
+        with an Acknowledge exception and leave the register unchanged.
+        """
         try:
-            if len(values) == 1:
-                self._modbus.write_holding_register(register_addr=addr, value=values[0])
-            else:
-                self._modbus.write_multiple_holding_registers(
-                    register_addr=addr, values=values
-                )
+            self._modbus.write_multiple_holding_registers(
+                register_addr=addr, values=values
+            )
         except Exception as e:
             raise ModbusWriteError(f"Register 0x{addr:04X}: write failed: {e}") from e
         _LOGGER.debug("Wrote registers 0x%04X: %s", addr, values)

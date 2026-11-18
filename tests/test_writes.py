@@ -36,15 +36,15 @@ def inverter(modbus):
 # === InverterData.write_registers ===
 
 
-async def test_write_single_register_and_verify(inverter, modbus):
+async def test_write_single_register_uses_function_16(inverter, modbus):
+    """Deye refuses function 6, so even one register goes as write-multiple."""
     modbus.read_holding_registers.return_value = [1]
 
     await inverter.write_registers(0x00F4, [1])
 
-    modbus.write_holding_register.assert_called_once_with(
-        register_addr=0x00F4, value=1
+    modbus.write_multiple_holding_registers.assert_called_once_with(
+        register_addr=0x00F4, values=[1]
     )
-    modbus.write_multiple_holding_registers.assert_not_called()
     modbus.read_holding_registers.assert_called_once_with(
         register_addr=0x00F4, quantity=1
     )
@@ -58,7 +58,6 @@ async def test_write_multiple_registers_and_verify(inverter, modbus):
     modbus.write_multiple_holding_registers.assert_called_once_with(
         register_addr=0x00FA, values=[5, 6, 7]
     )
-    modbus.write_holding_register.assert_not_called()
 
 
 async def test_write_readback_mismatch_raises(inverter, modbus):
@@ -69,7 +68,7 @@ async def test_write_readback_mismatch_raises(inverter, modbus):
 
 
 async def test_write_library_error_is_wrapped(inverter, modbus):
-    modbus.write_holding_register.side_effect = RuntimeError("timeout")
+    modbus.write_multiple_holding_registers.side_effect = RuntimeError("timeout")
 
     with pytest.raises(ModbusWriteError, match="write failed"):
         await inverter.write_registers(0x00F4, [2])
@@ -89,7 +88,6 @@ async def test_write_rejects_bad_values_before_touching_the_inverter(
 ):
     with pytest.raises(ModbusWriteError):
         await inverter.write_registers(0x00F4, values)
-    modbus.write_holding_register.assert_not_called()
     modbus.write_multiple_holding_registers.assert_not_called()
 
 
@@ -103,8 +101,8 @@ async def test_update_register_changes_only_masked_bits(inverter, modbus):
     written = await inverter.update_register(0x00F8, 0x0001, 0x0001)
 
     assert written == 0x00FF
-    modbus.write_holding_register.assert_called_once_with(
-        register_addr=0x00F8, value=0x00FF
+    modbus.write_multiple_holding_registers.assert_called_once_with(
+        register_addr=0x00F8, values=[0x00FF]
     )
 
 
@@ -114,8 +112,8 @@ async def test_update_register_clears_masked_bits(inverter, modbus):
     written = await inverter.update_register(0x00F8, 0x0001, 0)
 
     assert written == 0x00FE
-    modbus.write_holding_register.assert_called_once_with(
-        register_addr=0x00F8, value=0x00FE
+    modbus.write_multiple_holding_registers.assert_called_once_with(
+        register_addr=0x00F8, values=[0x00FE]
     )
 
 
@@ -124,7 +122,7 @@ async def test_update_register_skips_write_when_unchanged(inverter, modbus):
 
     await inverter.update_register(0x00F8, 0x0001, 0x0001)
 
-    modbus.write_holding_register.assert_not_called()
+    modbus.write_multiple_holding_registers.assert_not_called()
 
 
 async def test_update_register_read_error_is_wrapped(inverter, modbus):
@@ -132,7 +130,7 @@ async def test_update_register_read_error_is_wrapped(inverter, modbus):
 
     with pytest.raises(ModbusWriteError, match="read failed"):
         await inverter.update_register(0x00F8, 0x0001, 0x0001)
-    modbus.write_holding_register.assert_not_called()
+    modbus.write_multiple_holding_registers.assert_not_called()
 
 
 async def test_update_register_short_read_is_an_error(inverter, modbus):

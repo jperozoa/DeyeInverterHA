@@ -6,7 +6,17 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Tuple, Un
 
 import importlib.resources as pkg_resources
 
-from .const import DEFAULT_MOD, REGISTER_BLOCKS
+from .const import (
+    DEFAULT_MOD,
+    REG_TOU_CHARGE,
+    REG_TOU_POWER,
+    REG_TOU_SOC,
+    REG_TOU_START,
+    REGISTER_BLOCKS,
+    TIME_OF_USE_SLOTS,
+    TOU_GEN_CHARGE_MASK,
+    TOU_GRID_CHARGE_MASK,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle only exists for typing
     from .profiles import Profile
@@ -217,6 +227,58 @@ def work_mode_registers(key: int) -> Tuple[int, Optional[int]]:
     raise ValueError(f"Unknown Work Mode option key: {key}")
 
 
+# Key under which parse_raw reports the time-of-use program: a list with one
+# dict per slot, so the controls and the diagnostics share one parse.
+TIME_OF_USE_PROGRAM = "Time of Use Program"
+
+
+def decode_tou_time(value: int) -> Optional[str]:
+    """Turn the HHMM register value into "HH:MM", or None if nonsensical."""
+    hours, minutes = divmod(int(value), 100)
+    if not (0 <= hours <= 23 and 0 <= minutes <= 59):
+        return None
+    return f"{hours:02d}:{minutes:02d}"
+
+
+def encode_tou_time(hours: int, minutes: int) -> int:
+    """Turn a time of day into the HHMM register value."""
+    if not (0 <= hours <= 23 and 0 <= minutes <= 59):
+        raise ValueError(f"Not a time of day: {hours}:{minutes}")
+    return hours * 100 + minutes
+
+
+def parse_time_of_use(
+    raw: Sequence[Optional[int]],
+) -> Optional[List[Dict[str, Any]]]:
+    """Parse the six time-of-use slots, or None if their block is missing."""
+    slots: List[Dict[str, Any]] = []
+    for n in range(TIME_OF_USE_SLOTS):
+        values: Dict[str, int] = {}
+        for name, base in (
+            ("start", REG_TOU_START),
+            ("power", REG_TOU_POWER),
+            ("soc", REG_TOU_SOC),
+            ("charge", REG_TOU_CHARGE),
+        ):
+            idx = register_index(base + n)
+            if idx is None or not 0 <= idx < len(raw):
+                return None
+            value = raw[idx]
+            if value is None:
+                return None
+            values[name] = int(value)
+        slots.append(
+            {
+                "start": decode_tou_time(values["start"]),
+                "power": values["power"],
+                "soc": values["soc"],
+                "grid_charge": bool(values["charge"] & TOU_GRID_CHARGE_MASK),
+                "gen_charge": bool(values["charge"] & TOU_GEN_CHARGE_MASK),
+            }
+        )
+    return slots
+
+
 def parse_raw(
     raw: Sequence[Optional[int]], profile: Optional["Profile"] = None
 ) -> Dict[str, Any]:
@@ -356,5 +418,9 @@ def parse_raw(
             except Exception as e:
                 _LOGGER.debug("Error parsing %s: %s", title, e)
                 continue
+
+    program = parse_time_of_use(raw)
+    if program is not None:
+        result[TIME_OF_USE_PROGRAM] = program
 
     return result

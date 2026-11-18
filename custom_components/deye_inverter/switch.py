@@ -11,9 +11,17 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, REG_TIME_OF_USE, TIME_OF_USE_ENABLE_MASK
+from .const import (
+    DOMAIN,
+    REG_TIME_OF_USE,
+    REG_TOU_CHARGE,
+    TIME_OF_USE_ENABLE_MASK,
+    TOU_GEN_CHARGE_MASK,
+    TOU_GRID_CHARGE_MASK,
+)
 from .coordinator import DeyeDataUpdateCoordinator
 from .sensor import _inverter_device_info
+from .time_of_use import DeyeTimeOfUseSlotEntity, slot_numbers
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -26,7 +34,11 @@ async def async_setup_entry(
 ) -> None:
     """Set up the switch platform."""
     coordinator: DeyeDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([DeyeTimeOfUseSwitch(coordinator)], update_before_add=False)
+    entities: list[SwitchEntity] = [DeyeTimeOfUseSwitch(coordinator)]
+    for n in slot_numbers():
+        entities.append(DeyeTimeOfUseGridCharge(coordinator, n))
+        entities.append(DeyeTimeOfUseGenCharge(coordinator, n))
+    async_add_entities(entities, update_before_add=False)
 
 
 class DeyeTimeOfUseSwitch(CoordinatorEntity[DeyeDataUpdateCoordinator], SwitchEntity):
@@ -79,3 +91,48 @@ class DeyeTimeOfUseSwitch(CoordinatorEntity[DeyeDataUpdateCoordinator], SwitchEn
         await self.coordinator.async_update_register(
             REG_TIME_OF_USE, TIME_OF_USE_ENABLE_MASK, 0
         )
+
+
+class _DeyeTimeOfUseChargeFlag(DeyeTimeOfUseSlotEntity, SwitchEntity):
+    """One bit of a slot's charge-flags register."""
+
+    _mask = 0
+    _field = ""
+
+    @property
+    def is_on(self) -> Optional[bool]:
+        slot = self.slot_data or {}
+        value = slot.get(self._field)
+        return value if isinstance(value, bool) else None
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        await self.coordinator.async_update_register(
+            REG_TOU_CHARGE + self.register_offset, self._mask, self._mask
+        )
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        await self.coordinator.async_update_register(
+            REG_TOU_CHARGE + self.register_offset, self._mask, 0
+        )
+
+
+class DeyeTimeOfUseGridCharge(_DeyeTimeOfUseChargeFlag):
+    """Whether the slot may charge the battery from the grid to reach its SOC."""
+
+    _kind = "grid_charge"
+    _label = "Grid Charge"
+    _field = "grid_charge"
+    _mask = TOU_GRID_CHARGE_MASK
+    _attr_icon = "mdi:transmission-tower-import"
+
+
+class DeyeTimeOfUseGenCharge(_DeyeTimeOfUseChargeFlag):
+    """Whether the slot may charge from a generator. Off by default in the
+    registry, since most installations have none."""
+
+    _kind = "gen_charge"
+    _label = "Generator Charge"
+    _field = "gen_charge"
+    _mask = TOU_GEN_CHARGE_MASK
+    _attr_icon = "mdi:engine"
+    _attr_entity_registry_enabled_default = False

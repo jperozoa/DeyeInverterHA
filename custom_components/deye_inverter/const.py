@@ -32,6 +32,7 @@ OPTIONAL_REGISTER_BLOCKS = [
     (0x0003, 0x000E),  # device info: inverter id, board versions
     (0x00F4, 0x00F8),  # work mode, time of use
     (0x0010, 0x0012),  # rated power, MPPT and phase counts
+    (0x00FA, 0x0117),  # time-of-use program, six slots
 ]
 # Rated power at or above this (W) means the inverter reports power in 10 W
 # units, i.e. scaling variant 2. Inferred from hardware, not documented, so
@@ -46,4 +47,20 @@ REG_SOLAR_SELL = 0x00F7  # 0 off, 1 on; only meaningful in a zero-export mode
 REG_TIME_OF_USE = 0x00F8  # bit 0 enables the time-of-use program
 TIME_OF_USE_ENABLE_MASK = 0x0001
 
-PLATFORMS = ["sensor", "select", "switch"]
+# The time-of-use program: six slots, each one register per setting, slot n
+# at base + n. A slot runs from its start time to the next slot's; slot 6
+# wraps around to slot 1. The target SOC is held during the slot: charged
+# up to (from the grid only if the flag is set) and not discharged below.
+TIME_OF_USE_SLOTS = 6
+REG_TOU_START = 0x00FA  # HHMM as a decimal, e.g. 1830
+REG_TOU_POWER = 0x0100  # W, charge/discharge limit for the slot
+REG_TOU_VOLTAGE = 0x0106  # lead-acid voltage targets, not exposed
+REG_TOU_SOC = 0x010C  # %
+REG_TOU_CHARGE = 0x0112  # bit 0 grid charge, bit 1 generator charge
+TOU_GRID_CHARGE_MASK = 0x0001
+TOU_GEN_CHARGE_MASK = 0x0002
+# Upper bound for the slot power limit when the inverter does not report
+# its rated power; the largest single-phase hybrid in the family.
+TOU_POWER_FALLBACK_MAX = 12000
+
+PLATFORMS = ["sensor", "select", "switch", "number", "time"]

@@ -172,6 +172,11 @@ over the same Modbus connection the sensors use.
 |---|---|---|---|
 | *Work Mode* | select | `0x00F4`, `0x00F7` | Selling First, or one of the four zero-export modes (to load / to home, with or without solar sell) |
 | *Time of Use* | switch | `0x00F8` bit 0 | Enables or disables the inverter's time-of-use program |
+| *Time of Use N Start* | time | `0x00FA`+N | When slot N begins (it lasts until the next slot starts; slot 6 wraps to slot 1) |
+| *Time of Use N SOC* | number | `0x010C`+N | Battery level held during the slot: charged up to it, never discharged below it |
+| *Time of Use N Power* | number | `0x0100`+N | Charge/discharge power limit during the slot, in W |
+| *Time of Use N Grid Charge* | switch | `0x0112`+N bit 0 | Whether the grid may charge the battery up to the slot's SOC |
+| *Time of Use N Generator Charge* | switch | `0x0112`+N bit 1 | Same for a generator; disabled by default in the entity registry |
 
 Every write is read back and compared, and the entity only changes state once
 the next poll confirms the inverter took the new value. A refused or
@@ -186,8 +191,11 @@ Notes:
   wiring them into automations.
 - The datalogger accepts one TCP client at a time, so a write fails while the
   Solarman app or cloud holds the connection.
-- The time-of-use schedule itself (time slots, power and SOC limits, grid
-  charge flags) is not exposed yet; configure it in the app for now.
+- The six slots always cover the whole day: a slot ends where the next one
+  begins, and slot 6 runs until slot 1 starts again. Keep the start times in
+  order; the inverter does not sort them for you.
+- The per-slot voltage targets (`0x0106`–`0x010B`) only apply to lead-acid
+  batteries in voltage mode and are not exposed.
 
 ## Energy Dashboard
 

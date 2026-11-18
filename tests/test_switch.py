@@ -7,6 +7,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from custom_components.deye_inverter.const import (
     REG_TIME_OF_USE,
     TIME_OF_USE_ENABLE_MASK,
+    TIME_OF_USE_SLOTS,
 )
 from custom_components.deye_inverter.switch import (
     DeyeTimeOfUseSwitch,
@@ -76,5 +77,6 @@ async def test_async_setup_entry_adds_switch(mock_coordinator):
 
     await async_setup_entry(hass, entry, lambda ents, **kw: added.extend(ents))
 
-    assert len(added) == 1
+    # The program enable switch, then grid and generator charge per slot
     assert isinstance(added[0], DeyeTimeOfUseSwitch)
+    assert len(added) == 1 + 2 * TIME_OF_USE_SLOTS

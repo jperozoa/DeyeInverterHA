@@ -3,6 +3,7 @@ from unittest.mock import MagicMock
 
 from custom_components.deye_inverter.sensor import (
     DeyeInverterSensor,
+    DeyeInverterTimeSensor,
     DeyeMetricSensor,
     DeyeProductionPercentSensor,
     async_setup_entry,
@@ -23,18 +24,16 @@ async def test_async_setup_entry_adds_entities():
     mock_coordinator = MagicMock()
     mock_coordinator.serial = "ABC123"
     mock_coordinator.installed_power = 5
-    hass.data = {
-        DOMAIN: {
-            "mock_entry_id": mock_coordinator
-        }
-    }
+    hass.data = {DOMAIN: {"mock_entry_id": mock_coordinator}}
 
     mock_entry = MagicMock()
     mock_entry.entry_id = "mock_entry_id"
 
     await async_setup_entry(hass, mock_entry, async_add_entities)
 
-    assert len(added) == 2 + len(build_descriptions())
+    # aggregate, production percent, one per metric, and the inverter clock
+    assert len(added) == 3 + len(build_descriptions())
     assert isinstance(added[0], DeyeInverterSensor)
     assert isinstance(added[1], DeyeProductionPercentSensor)
-    assert all(isinstance(e, DeyeMetricSensor) for e in added[2:])
+    assert all(isinstance(e, DeyeMetricSensor) for e in added[2:-1])
+    assert isinstance(added[-1], DeyeInverterTimeSensor)

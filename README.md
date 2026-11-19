@@ -177,6 +177,12 @@ over the same Modbus connection the sensors use.
 | *Time of Use N Power* | number | `0x0100`+N | Charge/discharge power limit during the slot, in W |
 | *Time of Use N Grid Charge* | switch | `0x0112`+N bit 0 | Whether the grid may charge the battery up to the slot's SOC |
 | *Time of Use N Generator Charge* | switch | `0x0112`+N bit 1 | Same for a generator; disabled by default in the entity registry |
+| *Max Charge Current*, *Max Discharge Current* | number | `0x00D2`, `0x00D3` | The battery current limits, in A. These cap everything, including the slot power limits |
+| *Battery Low SOC*, *Shutdown SOC*, *Restart SOC* | number | `0x00DB`, `0x00D9`, `0x00DA` | Discharge floor outside the program, hard stop, and the level at which the battery comes back |
+| *Grid Charge Current*, *Grid Charge Start SOC* | number | `0x00E6`, `0x00E5` | Rate and trigger for charging from the grid |
+| *Max Sell Power* | number | `0x008F` | Export cap in W |
+| *Priority Mode* | select | `0x00F3` | Battery First or Load First for PV surplus |
+| *Sync Clock* | button | `0x0016`–`0x0018` | Sets the inverter's clock to Home Assistant's local time; the *Inverter Time* diagnostic sensor shows it |
 
 Every write is read back and compared, and the entity only changes state once
 the next poll confirms the inverter took the new value. A refused or ignored
@@ -198,6 +204,11 @@ Notes:
   order; the inverter does not sort them for you.
 - The per-slot voltage targets (`0x0106`–`0x010B`) only apply to lead-acid
   batteries in voltage mode and are not exposed.
+- The program follows the inverter's own clock, which drifts. Press *Sync
+  Clock* now and then, or automate it, and compare *Inverter Time* with the
+  real time if a slot seems to switch early or late.
+- The SOC thresholds are not cross-checked: keep shutdown below low below
+  restart, as the app does.
 
 ## Energy Dashboard
 

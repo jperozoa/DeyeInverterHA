@@ -28,6 +28,7 @@ from custom_components.deye_inverter.InverterDataParser import (
     register_index,
 )
 from custom_components.deye_inverter.number import (
+    SETTING_NUMBERS,
     DeyeTimeOfUsePower,
     DeyeTimeOfUseSoc,
 )
@@ -262,7 +263,8 @@ async def test_gen_charge_write_and_disabled_by_default(mock_coordinator):
     "setup, expected",
     [
         (time_setup, TIME_OF_USE_SLOTS),
-        (number_setup, 2 * TIME_OF_USE_SLOTS),
+        # SOC and power per slot, plus the global numeric settings
+        (number_setup, 2 * TIME_OF_USE_SLOTS + len(SETTING_NUMBERS)),
         # the program enable switch plus two flags per slot
         (switch_setup, 1 + 2 * TIME_OF_USE_SLOTS),
     ],

@@ -11,11 +11,12 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, REG_SOLAR_SELL, REG_WORK_MODE
+from .const import DOMAIN, PRIORITY_MODES, REG_SOLAR_SELL, REG_WORK_MODE
 from .coordinator import DeyeDataUpdateCoordinator
 from .InverterDataParser import work_mode_registers
 from .profiles import Profile, get_profile
 from .sensor import _inverter_device_info
+from .settings import DeyeSettingEntity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -34,7 +35,10 @@ async def async_setup_entry(
 ) -> None:
     """Set up the select platform."""
     coordinator: DeyeDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([DeyeWorkModeSelect(coordinator)], update_before_add=False)
+    async_add_entities(
+        [DeyeWorkModeSelect(coordinator), DeyePriorityModeSelect(coordinator)],
+        update_before_add=False,
+    )
 
 
 class DeyeWorkModeSelect(CoordinatorEntity[DeyeDataUpdateCoordinator], SelectEntity):
@@ -87,3 +91,23 @@ class DeyeWorkModeSelect(CoordinatorEntity[DeyeDataUpdateCoordinator], SelectEnt
         if solar_sell is not None:
             await self.coordinator.async_write_registers(REG_SOLAR_SELL, [solar_sell])
         await self.coordinator.async_write_registers(REG_WORK_MODE, [mode])
+
+
+class DeyePriorityModeSelect(DeyeSettingEntity, SelectEntity):
+    """Whether PV surplus goes to the battery or the load first."""
+
+    _field = "priority_mode"
+    _attr_name = "Priority Mode"
+    _attr_icon = "mdi:priority-high"
+    _attr_options = [PRIORITY_MODES[key] for key in sorted(PRIORITY_MODES)]
+
+    @property
+    def current_option(self) -> Optional[str]:
+        value = self.setting
+        return None if value is None else PRIORITY_MODES.get(value)
+
+    async def async_select_option(self, option: str) -> None:
+        keys = [key for key, label in PRIORITY_MODES.items() if label == option]
+        if not keys:
+            raise ValueError(f"Unknown priority mode: {option}")
+        await self.async_write(keys[0])

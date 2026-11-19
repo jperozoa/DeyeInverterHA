@@ -8,6 +8,16 @@ import importlib.resources as pkg_resources
 
 from .const import (
     DEFAULT_MOD,
+    REG_BATTERY_LOW_SOC,
+    REG_BATTERY_RESTART_SOC,
+    REG_BATTERY_SHUTDOWN_SOC,
+    REG_CLOCK,
+    REG_GRID_CHARGE_CURRENT,
+    REG_GRID_CHARGE_START_SOC,
+    REG_MAX_CHARGE_CURRENT,
+    REG_MAX_DISCHARGE_CURRENT,
+    REG_MAX_SELL_POWER,
+    REG_PRIORITY_MODE,
     REG_TOU_CHARGE,
     REG_TOU_POWER,
     REG_TOU_SOC,
@@ -279,6 +289,76 @@ def parse_time_of_use(
     return slots
 
 
+# Key under which parse_raw reports the global settings, as {field: value}.
+SETTINGS = "Settings"
+# field -> register, for the settings that are one plain number each
+SETTING_REGISTERS: Dict[str, int] = {
+    "max_sell_power": REG_MAX_SELL_POWER,
+    "max_charge_current": REG_MAX_CHARGE_CURRENT,
+    "max_discharge_current": REG_MAX_DISCHARGE_CURRENT,
+    "battery_shutdown_soc": REG_BATTERY_SHUTDOWN_SOC,
+    "battery_restart_soc": REG_BATTERY_RESTART_SOC,
+    "battery_low_soc": REG_BATTERY_LOW_SOC,
+    "grid_charge_start_soc": REG_GRID_CHARGE_START_SOC,
+    "grid_charge_current": REG_GRID_CHARGE_CURRENT,
+    "priority_mode": REG_PRIORITY_MODE,
+}
+# Key under which parse_raw reports the inverter's clock, as "YYYY-MM-DD HH:MM:SS"
+INVERTER_TIME = "Inverter Time"
+
+
+def _register_value(raw: Sequence[Optional[int]], reg: int) -> Optional[int]:
+    """One register's value, or None if it was not read."""
+    idx = register_index(reg)
+    if idx is None or not 0 <= idx < len(raw):
+        return None
+    value = raw[idx]
+    return None if value is None else int(value)
+
+
+def parse_settings(raw: Sequence[Optional[int]]) -> Dict[str, int]:
+    """The global settings that were read, by field. Unread ones are absent."""
+    settings: Dict[str, int] = {}
+    for field, reg in SETTING_REGISTERS.items():
+        value = _register_value(raw, reg)
+        if value is not None:
+            settings[field] = value
+    return settings
+
+
+def decode_clock(regs: Sequence[int]) -> Optional[str]:
+    """Turn the three clock registers into "YYYY-MM-DD HH:MM:SS"."""
+    if len(regs) != 3:
+        return None
+    year, month = regs[0] >> 8, regs[0] & 0xFF
+    day, hour = regs[1] >> 8, regs[1] & 0xFF
+    minute, second = regs[2] >> 8, regs[2] & 0xFF
+    if not (1 <= month <= 12 and 1 <= day <= 31):
+        return None
+    if not (hour <= 23 and minute <= 59 and second <= 59):
+        return None
+    return f"20{year:02d}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d}"
+
+
+def encode_clock(
+    year: int, month: int, day: int, hour: int, minute: int, second: int
+) -> List[int]:
+    """The three clock registers for a date and time."""
+    return [
+        ((year - 2000) & 0xFF) << 8 | month,
+        day << 8 | hour,
+        minute << 8 | second,
+    ]
+
+
+def parse_clock(raw: Sequence[Optional[int]]) -> Optional[str]:
+    """The inverter's clock, or None if its block was not read."""
+    regs = [_register_value(raw, REG_CLOCK + i) for i in range(3)]
+    if any(r is None for r in regs):
+        return None
+    return decode_clock([r for r in regs if r is not None])
+
+
 def parse_raw(
     raw: Sequence[Optional[int]], profile: Optional["Profile"] = None
 ) -> Dict[str, Any]:
@@ -422,5 +502,11 @@ def parse_raw(
     program = parse_time_of_use(raw)
     if program is not None:
         result[TIME_OF_USE_PROGRAM] = program
+    settings = parse_settings(raw)
+    if settings:
+        result[SETTINGS] = settings
+    clock = parse_clock(raw)
+    if clock is not None:
+        result[INVERTER_TIME] = clock
 
     return result

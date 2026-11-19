@@ -107,5 +107,6 @@ async def test_async_setup_entry_adds_select(mock_coordinator):
 
     await async_setup_entry(hass, entry, lambda ents, **kw: added.extend(ents))
 
-    assert len(added) == 1
+    # Work mode first, then the priority mode setting
+    assert len(added) == 2
     assert isinstance(added[0], DeyeWorkModeSelect)

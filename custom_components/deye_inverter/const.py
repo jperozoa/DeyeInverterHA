@@ -33,6 +33,9 @@ OPTIONAL_REGISTER_BLOCKS = [
     (0x00F4, 0x00F8),  # work mode, time of use
     (0x0010, 0x0012),  # rated power, MPPT and phase counts
     (0x00FA, 0x0117),  # time-of-use program, six slots
+    (0x0016, 0x0018),  # inverter clock
+    (0x008F, 0x008F),  # max sell power
+    (0x00D2, 0x00F3),  # battery, grid charge and priority settings
 ]
 # Rated power at or above this (W) means the inverter reports power in 10 W
 # units, i.e. scaling variant 2. Inferred from hardware, not documented, so
@@ -63,4 +66,24 @@ TOU_GEN_CHARGE_MASK = 0x0002
 # its rated power; the largest single-phase hybrid in the family.
 TOU_POWER_FALLBACK_MAX = 12000
 
-PLATFORMS = ["sensor", "select", "switch", "number", "time"]
+# Global settings, from the Battery and Grid pages of the app. Currents in A,
+# SOC in %, power in W; priority 0 battery first, 1 load first. The max
+# charge and discharge currents cap everything the time-of-use slots ask for.
+REG_MAX_SELL_POWER = 0x008F
+REG_MAX_CHARGE_CURRENT = 0x00D2
+REG_MAX_DISCHARGE_CURRENT = 0x00D3
+REG_BATTERY_SHUTDOWN_SOC = 0x00D9
+REG_BATTERY_RESTART_SOC = 0x00DA
+REG_BATTERY_LOW_SOC = 0x00DB
+REG_GRID_CHARGE_START_SOC = 0x00E5
+REG_GRID_CHARGE_CURRENT = 0x00E6
+REG_PRIORITY_MODE = 0x00F3
+PRIORITY_MODES = {0: "Battery First", 1: "Load First"}
+# Upper bound for the current limits; the largest charger in the family.
+MAX_BATTERY_CURRENT = 250
+
+# Inverter clock: (year-2000, month), (day, hour), (minute, second), one
+# byte each, high byte first.
+REG_CLOCK = 0x0016
+
+PLATFORMS = ["sensor", "select", "switch", "number", "time", "button"]

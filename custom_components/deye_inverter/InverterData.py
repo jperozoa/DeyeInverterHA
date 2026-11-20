@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Sequence, TypeVar
 
@@ -17,6 +18,11 @@ from .profiles import get_profile
 _LOGGER = logging.getLogger(__name__)
 
 T = TypeVar("T")
+
+# How long to wait before reading a written register back a second time.
+# The inverter sometimes still reports the old value right after a write,
+# especially when several writes arrive in quick succession.
+WRITE_SETTLE_SECONDS = 1.0
 
 
 class ModbusReadError(Exception):
@@ -345,6 +351,10 @@ class InverterData:
         _LOGGER.debug("Wrote registers 0x%04X: %s", addr, values)
 
         after = self._read_some(addr, len(values), "read back after write")
+        if after == before and after != values:
+            # Give the inverter a moment before calling it ignored
+            time.sleep(WRITE_SETTLE_SECONDS)
+            after = self._read_some(addr, len(values), "read back after write")
         if after == values:
             return after
         if after != before:

@@ -174,7 +174,7 @@ over the same Modbus connection the sensors use.
 | *Time of Use* | switch | `0x00F8` bit 0 | Enables or disables the inverter's time-of-use program |
 | *Time of Use N Start* | time | `0x00FA`+N | When slot N begins (it lasts until the next slot starts; slot 6 wraps to slot 1) |
 | *Time of Use N SOC* | number | `0x010C`+N | Battery level held during the slot: charged up to it, never discharged below it |
-| *Time of Use N Power* | number | `0x0100`+N | Charge/discharge power limit during the slot, in W |
+| *Time of Use N Power* | number | `0x0100`+N | Battery discharge limit during the slot, in W. Grid charging is governed by *Grid Charge Current* and *Max Charge Current* instead |
 | *Time of Use N Grid Charge* | switch | `0x0112`+N bit 0 | Whether the grid may charge the battery up to the slot's SOC |
 | *Time of Use N Generator Charge* | switch | `0x0112`+N bit 1 | Same for a generator; disabled by default in the entity registry |
 | *Max Charge Current*, *Max Discharge Current* | number | `0x00D2`, `0x00D3` | The battery current limits, in A. These cap everything, including the slot power limits |

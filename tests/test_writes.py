@@ -70,11 +70,25 @@ async def test_write_multiple_registers_and_verify(inverter, modbus):
 
 
 async def test_write_ignored_by_inverter_raises(inverter, modbus):
-    """Unchanged after the write means the inverter did not take it."""
+    """Still unchanged after a second look means the inverter did not take it."""
     modbus.read_holding_registers.return_value = [0]
 
-    with pytest.raises(ModbusWriteError, match="kept \\[0\\], ignoring \\[2\\]"):
+    with (
+        patch("custom_components.deye_inverter.InverterData.time.sleep") as sleep,
+        pytest.raises(ModbusWriteError, match="kept \\[0\\], ignoring \\[2\\]"),
+    ):
         await inverter.write_registers(0x00F4, [2])
+    sleep.assert_called_once()
+    # before, after, and the second look
+    assert modbus.read_holding_registers.call_count == 3
+
+
+async def test_write_that_settles_late_counts_as_written(inverter, modbus):
+    """The value shows up on the second read-back: written, no error."""
+    modbus.read_holding_registers.side_effect = [[10000], [10000], [1500]]
+
+    with patch("custom_components.deye_inverter.InverterData.time.sleep"):
+        assert await inverter.write_registers(0x0101, [1500]) == [1500]
 
 
 async def test_write_adjusted_by_inverter_counts_as_written(inverter, modbus):
@@ -191,9 +205,9 @@ async def test_read_reconnects_after_socket_loss(modbus_class):
     dead.read_holding_registers.side_effect = NoSocketAvailableError(
         "Connection already closed."
     )
-    fresh.read_holding_registers.side_effect = lambda register_addr, quantity: [
-        0
-    ] * quantity
+    fresh.read_holding_registers.side_effect = (
+        lambda register_addr, quantity: [0] * quantity
+    )
     modbus_class.side_effect = [dead, fresh]
     inverter = InverterData(host="localhost", port=8899, serial="1")
 
@@ -224,9 +238,9 @@ async def test_failed_reconnect_is_retried_on_the_next_call(modbus_class):
     dead = MagicMock()
     dead.read_holding_registers.side_effect = NoSocketAvailableError("closed")
     fresh = MagicMock()
-    fresh.read_holding_registers.side_effect = lambda register_addr, quantity: [
-        0
-    ] * quantity
+    fresh.read_holding_registers.side_effect = (
+        lambda register_addr, quantity: [0] * quantity
+    )
     modbus_class.side_effect = [dead, NoSocketAvailableError("refused"), fresh]
     inverter = InverterData(host="localhost", port=8899, serial="1")
 

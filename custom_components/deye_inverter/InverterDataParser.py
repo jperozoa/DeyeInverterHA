@@ -13,6 +13,7 @@ from .const import (
     REG_BATTERY_SHUTDOWN_SOC,
     REG_CLOCK,
     REG_GRID_CHARGE_CURRENT,
+    REG_GRID_CHARGE_ENABLE,
     REG_GRID_CHARGE_START_SOC,
     REG_MAX_CHARGE_CURRENT,
     REG_MAX_DISCHARGE_CURRENT,
@@ -301,6 +302,7 @@ SETTING_REGISTERS: Dict[str, int] = {
     "battery_low_soc": REG_BATTERY_LOW_SOC,
     "grid_charge_start_soc": REG_GRID_CHARGE_START_SOC,
     "grid_charge_current": REG_GRID_CHARGE_CURRENT,
+    "grid_charge_enable": REG_GRID_CHARGE_ENABLE,
     "priority_mode": REG_PRIORITY_MODE,
 }
 # Key under which parse_raw reports the inverter's clock, as "YYYY-MM-DD HH:MM:SS"

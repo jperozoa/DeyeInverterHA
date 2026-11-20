@@ -179,6 +179,7 @@ over the same Modbus connection the sensors use.
 | *Time of Use N Generator Charge* | switch | `0x0112`+N bit 1 | Same for a generator; disabled by default in the entity registry |
 | *Max Charge Current*, *Max Discharge Current* | number | `0x00D2`, `0x00D3` | The battery current limits, in A. These cap everything, including the slot power limits |
 | *Battery Low SOC*, *Shutdown SOC*, *Restart SOC* | number | `0x00DB`, `0x00D9`, `0x00DA` | Discharge floor outside the program, hard stop, and the level at which the battery comes back |
+| *Grid Charge* | switch | `0x00E8` bit 0 | The global grid-charge enable. Off means the inverter never charges from the grid, whatever the slots say |
 | *Grid Charge Current*, *Grid Charge Start SOC* | number | `0x00E6`, `0x00E5` | Rate and trigger for charging from the grid |
 | *Max Sell Power* | number | `0x008F` | Export cap in W |
 | *Priority Mode* | select | `0x00F3` | Battery First or Load First for PV surplus |

@@ -39,6 +39,11 @@ from custom_components.deye_inverter.select import (
     async_setup_entry as select_setup,
 )
 from custom_components.deye_inverter.sensor import DeyeInverterTimeSensor
+from custom_components.deye_inverter.switch import DeyeGridChargeSwitch
+from custom_components.deye_inverter.const import (
+    GRID_CHARGE_ENABLE_MASK,
+    REG_GRID_CHARGE_ENABLE,
+)
 
 RAW_LEN = sum(end - start + 1 for start, end in REGISTER_BLOCKS)
 
@@ -51,6 +56,7 @@ VALUES = {
     "battery_low_soc": 25,
     "grid_charge_start_soc": 30,
     "grid_charge_current": 110,
+    "grid_charge_enable": 0,
     "priority_mode": 1,
 }
 
@@ -196,6 +202,33 @@ async def test_priority_select_write(mock_coordinator):
     )
     with pytest.raises(ValueError):
         await select.async_select_option("Nope")
+
+
+def test_grid_charge_switch_reads_bit_zero(mock_coordinator):
+    switch = DeyeGridChargeSwitch(mock_coordinator)
+
+    assert switch.unique_id == "ABC123_grid_charge_enable"
+    assert switch.entity_category is EntityCategory.CONFIG
+    assert switch.is_on is False
+
+    mock_coordinator.data[SETTINGS]["grid_charge_enable"] = 1
+    assert switch.is_on is True
+    mock_coordinator.data = {}
+    assert switch.is_on is None
+    assert switch.available is False
+
+
+async def test_grid_charge_switch_writes_only_bit_zero(mock_coordinator):
+    mock_coordinator.async_update_register = AsyncMock()
+    switch = DeyeGridChargeSwitch(mock_coordinator)
+
+    await switch.async_turn_on()
+    await switch.async_turn_off()
+
+    assert mock_coordinator.async_update_register.await_args_list == [
+        ((REG_GRID_CHARGE_ENABLE, GRID_CHARGE_ENABLE_MASK, GRID_CHARGE_ENABLE_MASK),),
+        ((REG_GRID_CHARGE_ENABLE, GRID_CHARGE_ENABLE_MASK, 0),),
+    ]
 
 
 def test_inverter_time_sensor(mock_coordinator):

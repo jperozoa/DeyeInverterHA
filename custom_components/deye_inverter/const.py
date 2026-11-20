@@ -77,6 +77,8 @@ REG_BATTERY_RESTART_SOC = 0x00DA
 REG_BATTERY_LOW_SOC = 0x00DB
 REG_GRID_CHARGE_START_SOC = 0x00E5
 REG_GRID_CHARGE_CURRENT = 0x00E6
+REG_GRID_CHARGE_ENABLE = 0x00E8  # bit 0; the per-slot flags need this on too
+GRID_CHARGE_ENABLE_MASK = 0x0001
 REG_PRIORITY_MODE = 0x00F3
 PRIORITY_MODES = {0: "Battery First", 1: "Load First"}
 # Upper bound for the current limits; the largest charger in the family.

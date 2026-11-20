@@ -13,6 +13,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
     DOMAIN,
+    GRID_CHARGE_ENABLE_MASK,
     REG_TIME_OF_USE,
     REG_TOU_CHARGE,
     TIME_OF_USE_ENABLE_MASK,
@@ -21,6 +22,7 @@ from .const import (
 )
 from .coordinator import DeyeDataUpdateCoordinator
 from .sensor import _inverter_device_info
+from .settings import DeyeSettingEntity
 from .time_of_use import DeyeTimeOfUseSlotEntity, slot_numbers
 
 _LOGGER = logging.getLogger(__name__)
@@ -34,7 +36,10 @@ async def async_setup_entry(
 ) -> None:
     """Set up the switch platform."""
     coordinator: DeyeDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
-    entities: list[SwitchEntity] = [DeyeTimeOfUseSwitch(coordinator)]
+    entities: list[SwitchEntity] = [
+        DeyeTimeOfUseSwitch(coordinator),
+        DeyeGridChargeSwitch(coordinator),
+    ]
     for n in slot_numbers():
         entities.append(DeyeTimeOfUseGridCharge(coordinator, n))
         entities.append(DeyeTimeOfUseGenCharge(coordinator, n))
@@ -136,3 +141,30 @@ class DeyeTimeOfUseGenCharge(_DeyeTimeOfUseChargeFlag):
     _mask = TOU_GEN_CHARGE_MASK
     _attr_icon = "mdi:engine"
     _attr_entity_registry_enabled_default = False
+
+
+class DeyeGridChargeSwitch(DeyeSettingEntity, SwitchEntity):
+    """The global grid-charge enable from the app's Battery Setting page.
+
+    With it off the inverter never charges from the grid, whatever the
+    time-of-use slots say; with it on, the slots decide when.
+    """
+
+    _field = "grid_charge_enable"
+    _attr_name = "Grid Charge"
+    _attr_icon = "mdi:transmission-tower-import"
+
+    @property
+    def is_on(self) -> Optional[bool]:
+        value = self.setting
+        return None if value is None else bool(value & GRID_CHARGE_ENABLE_MASK)
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        await self.coordinator.async_update_register(
+            self.register, GRID_CHARGE_ENABLE_MASK, GRID_CHARGE_ENABLE_MASK
+        )
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        await self.coordinator.async_update_register(
+            self.register, GRID_CHARGE_ENABLE_MASK, 0
+        )

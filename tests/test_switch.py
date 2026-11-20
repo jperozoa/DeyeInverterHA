@@ -77,6 +77,6 @@ async def test_async_setup_entry_adds_switch(mock_coordinator):
 
     await async_setup_entry(hass, entry, lambda ents, **kw: added.extend(ents))
 
-    # The program enable switch, then grid and generator charge per slot
+    # Program enable, global grid charge, then grid and generator charge per slot
     assert isinstance(added[0], DeyeTimeOfUseSwitch)
-    assert len(added) == 1 + 2 * TIME_OF_USE_SLOTS
+    assert len(added) == 2 + 2 * TIME_OF_USE_SLOTS

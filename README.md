@@ -320,8 +320,8 @@ automation:
 ### Caveats
 
 - **Several writes in a row**: each one is a Modbus round trip of a second or
-  so, and the inverter may need a moment to store a value. The integration
-  waits for that, but do not fire dozens of writes at once.
+  so, and the inverter may need a couple of seconds to store a value. The
+  integration waits for that, but do not fire dozens of writes at once.
 - **The datalogger accepts one TCP client at a time.** A write fails while
   the Solarman app holds a local connection, and the app may rewrite settings
   you changed here when it syncs. Close it while testing.

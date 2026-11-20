@@ -22,7 +22,7 @@ T = TypeVar("T")
 # How long to wait before reading a written register back a second time.
 # The inverter sometimes still reports the old value right after a write,
 # especially when several writes arrive in quick succession.
-WRITE_SETTLE_SECONDS = 1.0
+WRITE_SETTLE_SECONDS = 2.0
 
 
 class ModbusReadError(Exception):

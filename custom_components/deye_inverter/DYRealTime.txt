@@ -799,6 +799,7 @@
         "registers": ["0x00F8"],
         "interactionType": 2,
         "parserRule": 1,
+        "mask": "0x0001",
         "optionRanges": [
           {
             "key": 0,

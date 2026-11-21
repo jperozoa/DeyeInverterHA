@@ -1,9 +1,10 @@
 import logging
 from datetime import timedelta
-from typing import Any, Dict
+from typing import Any, Dict, Sequence
 
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from pysolarmanv5.pysolarmanv5 import NoSocketAvailableError
@@ -66,24 +67,29 @@ class DeyeDataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             mod=self.mod,
         )
 
+    async def _async_get_inverter(self) -> InverterData:
+        """Return the client, creating it on first use (off the event loop)."""
+        if self.inverter is None:
+            self.inverter = await self.hass.async_add_executor_job(
+                self._create_inverter
+            )
+        return self.inverter
+
     async def _async_update_data(self) -> Dict[str, Any]:
         """
         Periodic call: fetch data and handle errors.
         Returns last known data on failure to avoid sensor 'unavailable'.
         """
-        if self.inverter is None:
-            try:
-                self.inverter = await self.hass.async_add_executor_job(
-                    self._create_inverter
-                )
-            except NoSocketAvailableError as e:
-                _LOGGER.warning("Inverter unreachable: %s", e)
-                if self._last_known_data:
-                    return self._last_known_data
-                raise UpdateFailed(f"Inverter unreachable: {e}")
+        try:
+            inverter = await self._async_get_inverter()
+        except NoSocketAvailableError as e:
+            _LOGGER.warning("Inverter unreachable: %s", e)
+            if self._last_known_data:
+                return self._last_known_data
+            raise UpdateFailed(f"Inverter unreachable: {e}")
 
         try:
-            data = await self.inverter.fetch_data()
+            data = await inverter.fetch_data()
             self._last_known_data = data
             return data
         except Exception as err:
@@ -91,3 +97,25 @@ class DeyeDataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             if self._last_known_data:
                 return self._last_known_data
             raise UpdateFailed("Initial Modbus read failed with no backup: %s" % err)
+
+    async def async_write_registers(self, addr: int, values: Sequence[int]) -> None:
+        """Write registers, then poll so entities show what the inverter has."""
+        try:
+            inverter = await self._async_get_inverter()
+            await inverter.write_registers(addr, values)
+        except Exception as err:
+            raise HomeAssistantError(
+                f"Could not write register 0x{addr:04X}: {err}"
+            ) from err
+        await self.async_request_refresh()
+
+    async def async_update_register(self, addr: int, mask: int, value: int) -> None:
+        """Change the masked bits of one register, then poll."""
+        try:
+            inverter = await self._async_get_inverter()
+            await inverter.update_register(addr, mask, value)
+        except Exception as err:
+            raise HomeAssistantError(
+                f"Could not update register 0x{addr:04X}: {err}"
+            ) from err
+        await self.async_request_refresh()

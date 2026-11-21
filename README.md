@@ -21,6 +21,7 @@ It creates **one sensor entity per inverter metric** (40+ entities), all grouped
 - 📊 One entity per metric (40+ sensors) with device/state classes and statistics
 - ⚡ Energy dashboard support (kWh sensors with `total_increasing`)
 - 💡 Works offline — no cloud dependency
+- 🎛️ Controls: work mode, the full time-of-use program, battery and grid-charge limits, clock sync
 
 ---
 
@@ -160,6 +161,178 @@ Available metrics:
 
 The battery Daily/Total Charge and Discharge sensors can be used in the Energy
 dashboard's battery section.
+
+## Controls
+
+Besides reading, the integration can change the inverter's settings. Every
+control lives in the *Configuration* section of the device page (the
+*Diagnostic* section holds the read-only sensors) and writes straight to the
+inverter over the same Modbus connection the sensors use, exactly as the
+Solarman app would. They are not simulations: a change takes effect on the
+inverter within a minute and survives a power cycle. Read this section once
+before wiring any of them into an automation.
+
+### How a write works
+
+Each change is one register write. The integration reads the register, writes
+the new value, and reads it back:
+
+- **Stored as asked**: the entity shows the new value on the next poll.
+- **Stored adjusted**: some values are rounded or clamped by the inverter, for
+  example slot start times go to five-minute steps. That counts as written,
+  and the entity shows what the inverter actually kept.
+- **Ignored**: if the register still holds the old value a second later, the
+  write raises an error in the UI instead of pretending it worked.
+
+Writes that pack several settings into one register (the switches) change
+only their own bit. Writes are serialised with the polling, so a change
+never interleaves with a read.
+
+### The three layers of battery control
+
+The settings interact, and the picture is simpler once you see them as
+three layers. **The inverter always applies the tightest limit that
+applies.**
+
+1. **Hard limits**, always in force: *Max Charge Current*, *Max Discharge
+   Current*, *Battery Shutdown SOC*. Nothing below can exceed these.
+2. **The time-of-use program**, when its switch is on: six slots, each with
+   its own SOC target, discharge power limit and grid-charge flag. The active
+   slot decides what the battery does right now.
+3. **The global grid-charge settings**: the *Grid Charge* switch, its current
+   and its start SOC. The switch is a master enable: with it off the inverter
+   never charges from the grid, whatever a slot says.
+
+Current limits are in amps, so the power they allow depends on battery
+voltage: 60 A at 52 V is about 3.1 kW.
+
+### Global settings
+
+| Entity | What it means | Notes |
+|---|---|---|
+| **Max Charge Current** (A) | The most current the inverter will ever push into the battery, from PV, grid or generator. | The ceiling on every kind of charging. Set it from the battery's datasheet, not from how fast you would like to charge. |
+| **Max Discharge Current** (A) | The most current the battery will ever supply. | Caps how much of the house load the battery can cover. |
+| **Battery Low SOC** (%) | The level the battery is not discharged below in normal operation when the time-of-use program is off. | With the program on, the active slot's SOC takes this role. |
+| **Battery Shutdown SOC** (%) | Hard stop: below this the inverter stops discharging regardless of anything else. | Protects the battery. Keep it below *Low SOC*. |
+| **Battery Restart SOC** (%) | After a shutdown, discharging resumes once the battery has recharged to this level. | Keep it above *Low SOC*; the three are not cross-checked. |
+| **Grid Charge** (switch) | Master enable for charging the battery from the grid. | Off: the grid never charges the battery, even if a slot asks for it. On: the slots (or, with the program off, *Grid Charge Start SOC*) decide when. |
+| **Grid Charge Current** (A) | The rate used when charging from the grid. | Still capped by *Max Charge Current*. This is the knob for a gentle overnight charge, e.g. 28 A for about 1.5 kW. |
+| **Grid Charge Start SOC** (%) | With the program off and *Grid Charge* on, the grid starts charging when the battery drops below this. | Ignored while a slot controls grid charging. |
+| **Max Sell Power** (W) | Export cap at the grid connection. | Only matters in a work mode that sells. |
+| **Priority Mode** | Where PV surplus goes first once the house is served: *Battery First* or *Load First*. | *Load First* is the usual choice for self-consumption. |
+| **Work Mode** | *Selling First* exports any surplus. The four *Zero-Export* modes never export: *to Load* measures at the inverter's load port, *to Home* at the CT clamp on the grid connection. The *& Solar Sell* variants still export genuine PV surplus. | Writes two registers, the mode and the solar-sell flag. |
+| **Sync Clock** (button) | Sets the inverter's clock to Home Assistant's local time. | The time-of-use program runs on the inverter's clock, which drifts and is corrected by nothing else. *Inverter Time* shows it; a slot switching early or late is usually this. |
+
+### The time-of-use program
+
+The program splits the day into six slots. Each slot starts at its own time
+and runs until the next slot starts; slot 6 runs past midnight until slot 1
+begins, so the six always cover the full 24 hours with no gaps. Keep the start
+times in ascending order: the inverter does not sort them.
+
+| Entity (per slot N) | What it means |
+|---|---|
+| **Time of Use** (switch, global) | Turns the whole program on or off. Only the enable bit is touched; the weekday bits in the same register keep their values. With the program off the inverter falls back to *Priority Mode* and the global SOC thresholds. |
+| **Time of Use N Start** | When the slot begins. Stored in five-minute steps. |
+| **Time of Use N SOC** (%) | The battery level the inverter holds during the slot. Below it, the battery is charged up to it (from the grid only if the slot's *Grid Charge* is on and the global *Grid Charge* switch is on). Above it, the battery may discharge down to it, and no further. |
+| **Time of Use N Power** (W) | The battery **discharge** limit during the slot: the most the battery contributes to the house load. It does not limit grid charging, which follows *Grid Charge Current*. 0 parks the battery for the slot. |
+| **Time of Use N Grid Charge** | Whether the grid may charge the battery up to the slot's SOC during this slot. Needs the global *Grid Charge* switch on to have any effect. |
+| **Time of Use N Generator Charge** | Same for a generator on the gen port. Disabled by default in the entity registry; enable it only if you have one. |
+
+So the slot SOC is both a floor and a goal, and the pair *(SOC, Grid Charge)*
+is what you set per slot:
+
+| Slot SOC | Grid charge | Behaviour |
+|---|---|---|
+| 100 % | on | Fill the battery from the grid (cheap tariff window) |
+| 20 % | off | Use the battery freely down to 20 % (expensive window) |
+| 50 % | off | Use the battery, but keep half for later |
+| current SOC | off, power 0 | Hold: neither charge nor discharge |
+
+### Recipes
+
+**Charge from the grid right now.** Find the active slot (the one whose start
+time is the latest before now) and set, in this order: its *SOC* to the
+target, its *Grid Charge* on, and the global *Grid Charge* on. The rate is
+*Grid Charge Current*, capped by *Max Charge Current*. Charging stops at the
+target or when the next slot starts, whichever comes first; give the next slot
+the same two settings to continue. Put the slot back afterwards, or it repeats
+every day at that time. As a script, with the slot and target as parameters:
+
+```yaml
+script:
+  battery_grid_charge_start:
+    fields:
+      slot: { default: 5 }
+      soc: { default: 80 }
+    sequence:
+      - action: number.set_value
+        target: { entity_id: "number.deye_inverter_<serial>_time_of_use_{{ slot }}_soc" }
+        data: { value: "{{ soc }}" }
+      - action: switch.turn_on
+        target: { entity_id: "switch.deye_inverter_<serial>_time_of_use_{{ slot }}_grid_charge" }
+      - action: switch.turn_on
+        target: { entity_id: switch.deye_inverter_<serial>_grid_charge }
+
+  battery_grid_charge_stop:
+    fields:
+      slot: { default: 5 }
+      soc: { default: 25 }
+    sequence:
+      - action: switch.turn_off
+        target: { entity_id: switch.deye_inverter_<serial>_grid_charge }
+      - action: switch.turn_off
+        target: { entity_id: "switch.deye_inverter_<serial>_time_of_use_{{ slot }}_grid_charge" }
+      - action: number.set_value
+        target: { entity_id: "number.deye_inverter_<serial>_time_of_use_{{ slot }}_soc" }
+        data: { value: "{{ soc }}" }
+```
+
+**Cheap night tariff.** Give the night slot SOC 100 % with grid charge on,
+the morning and midday slots a low SOC with grid charge off so PV does the
+work, and the evening slot the lowest SOC you are comfortable with. Leave the
+global *Grid Charge* on permanently and set *Grid Charge Current* to the rate
+you want overnight.
+
+**Keep a reserve for the evening peak.** Set the afternoon slot's SOC to,
+say, 60 % with grid charge off: the battery still discharges, but stops at
+60 %, and the evening slot with SOC 20 % then releases the rest.
+
+**Stretch the battery through the night.** Lower the night slot's *Power* to
+roughly the house's base load: the battery covers that much and the grid
+takes the peaks, so the stored energy lasts until morning instead of being
+drained by the first big appliance.
+
+**Keep the inverter's clock right.** An automation that presses *Sync Clock*
+once a day:
+
+```yaml
+automation:
+  - alias: Sync inverter clock
+    triggers:
+      - trigger: time
+        at: "03:00:00"
+    actions:
+      - action: button.press
+        target: { entity_id: button.deye_inverter_<serial>_sync_clock }
+```
+
+### Caveats
+
+- **Several writes in a row**: each one is a Modbus round trip of a second or
+  so, and the inverter may need a couple of seconds to store a value. The
+  integration waits for that, but do not fire dozens of writes at once.
+- **The datalogger accepts one TCP client at a time.** A write fails while
+  the Solarman app holds a local connection, and the app may rewrite settings
+  you changed here when it syncs. Close it while testing.
+- **Changes made here show in the app** on its next refresh, and vice versa,
+  since both write the same registers.
+- **Not exposed on purpose**: battery voltage thresholds (for lead-acid in
+  voltage mode), grid voltage and frequency protection limits, and remote
+  power-off. A wrong value there can stop the system or damage the battery.
+- The register addresses follow the single-phase hybrid family (SUN-3K to
+  SUN-12K-SG0xLP1) and were verified on a SUN-10K-SG02LP1. Three-phase
+  models use a different map and these controls will not work on them.
 
 ## Energy Dashboard
 

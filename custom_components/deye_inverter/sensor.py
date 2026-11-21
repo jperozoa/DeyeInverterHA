@@ -8,7 +8,7 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorStateClass,
 )
-from homeassistant.const import PERCENTAGE, UnitOfPower
+from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfPower
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -16,6 +16,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import DOMAIN
 from .coordinator import DeyeDataUpdateCoordinator
 from .entity_descriptions import DeyeSensorDescription, build_descriptions
+from .InverterDataParser import INVERTER_TIME
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -84,6 +85,7 @@ async def async_setup_entry(
             getattr(coordinator, "profile", None), _detected_mppts(coordinator)
         )
     )
+    entities.append(DeyeInverterTimeSensor(coordinator))
     async_add_entities(entities, update_before_add=False)
 
 
@@ -192,3 +194,34 @@ class DeyeMetricSensor(CoordinatorEntity[DeyeDataUpdateCoordinator], SensorEntit
         """Return the parsed value for this metric, or None if missing."""
         data = self.coordinator.data or {}
         return data.get(self.entity_description.metric_title)
+
+
+class DeyeInverterTimeSensor(
+    CoordinatorEntity[DeyeDataUpdateCoordinator], SensorEntity
+):
+    """The inverter's own clock, which the time-of-use program follows."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Inverter Time"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:clock-outline"
+
+    def __init__(self, coordinator: DeyeDataUpdateCoordinator) -> None:
+        super().__init__(coordinator)
+        serial = getattr(coordinator, "serial", "unknown")
+        self._attr_unique_id = f"{serial}_inverter_time"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device info for the Deye inverter."""
+        return _inverter_device_info(self.coordinator)
+
+    @property
+    def available(self) -> bool:
+        if not super().available:
+            return False
+        return INVERTER_TIME in (self.coordinator.data or {})
+
+    @property
+    def native_value(self) -> Optional[str]:
+        return (self.coordinator.data or {}).get(INVERTER_TIME)

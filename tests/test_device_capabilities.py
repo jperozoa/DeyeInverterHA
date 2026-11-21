@@ -47,7 +47,8 @@ def test_counts_are_unpacked_from_one_register():
 
 def test_capability_metrics_are_dropped_when_their_block_is_missing():
     """A raw list without the capability block must not invent values."""
-    raw = [0] * (RAW_LEN - 3)
+    # Everything up to, not including, the capability block at 0x0010
+    raw = [0] * register_index(0x0010)
     result = parse_raw(raw)
     for title in ("Device Rated Power", "Device MPPTs", "Device Phases"):
         assert title not in result

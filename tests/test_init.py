@@ -7,7 +7,7 @@ from custom_components.deye_inverter import (
     async_unload_entry,
     async_setup,
 )
-from custom_components.deye_inverter.const import DOMAIN, CONF_MOD, DEFAULT_MOD
+from custom_components.deye_inverter.const import DOMAIN, CONF_MOD, DEFAULT_MOD, PLATFORMS
 
 
 @pytest.mark.asyncio
@@ -39,7 +39,7 @@ async def test_async_setup_entry():
         assert DOMAIN in hass.data
         assert "test_entry" in hass.data[DOMAIN]
         mock_coordinator.async_config_entry_first_refresh.assert_awaited_once()
-        hass.config_entries.async_forward_entry_setups.assert_awaited_once_with(mock_entry, ["sensor"])
+        hass.config_entries.async_forward_entry_setups.assert_awaited_once_with(mock_entry, PLATFORMS)
 
 
 @pytest.mark.asyncio
@@ -58,7 +58,7 @@ async def test_async_unload_entry():
 
     assert result is True
     assert entry_id not in hass.data[DOMAIN]
-    hass.config_entries.async_unload_platforms.assert_awaited_once_with(mock_entry, ["sensor"])
+    hass.config_entries.async_unload_platforms.assert_awaited_once_with(mock_entry, PLATFORMS)
 
 @pytest.mark.asyncio
 async def test_async_setup_import_creates_flow():

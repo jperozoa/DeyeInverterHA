@@ -6,7 +6,28 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Tuple, Un
 
 import importlib.resources as pkg_resources
 
-from .const import DEFAULT_MOD, REGISTER_BLOCKS
+from .const import (
+    DEFAULT_MOD,
+    REG_BATTERY_LOW_SOC,
+    REG_BATTERY_RESTART_SOC,
+    REG_BATTERY_SHUTDOWN_SOC,
+    REG_CLOCK,
+    REG_GRID_CHARGE_CURRENT,
+    REG_GRID_CHARGE_ENABLE,
+    REG_GRID_CHARGE_START_SOC,
+    REG_MAX_CHARGE_CURRENT,
+    REG_MAX_DISCHARGE_CURRENT,
+    REG_MAX_SELL_POWER,
+    REG_PRIORITY_MODE,
+    REG_TOU_CHARGE,
+    REG_TOU_POWER,
+    REG_TOU_SOC,
+    REG_TOU_START,
+    REGISTER_BLOCKS,
+    TIME_OF_USE_SLOTS,
+    TOU_GEN_CHARGE_MASK,
+    TOU_GRID_CHARGE_MASK,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle only exists for typing
     from .profiles import Profile
@@ -192,6 +213,154 @@ def parse_gen_connected_status(value: int) -> str:
     return "On" if value == 1 else "Off"
 
 
+# Work Mode is one setting spread over two registers: 0x00F4 holds the mode
+# (0 selling first, 1 zero-export to load, 2 zero-export to home/CT) and
+# 0x00F7 the solar sell flag. The optionRanges keys encode the pair: with
+# solar sell the mode keeps its key, without it the key is shifted by 2.
+# Selling first always sells, so the flag plays no part in it.
+def work_mode_key(mode: int, solar_sell: int) -> int:
+    """Map the (mode, solar sell) register pair onto a Work Mode option key."""
+    return 0 if mode == 0 else (mode if solar_sell else mode + 2)
+
+
+def work_mode_registers(key: int) -> Tuple[int, Optional[int]]:
+    """Map a Work Mode option key back onto (mode, solar sell).
+
+    The inverse of :func:`work_mode_key`. Selling first returns ``None`` for
+    the flag, since it is irrelevant there and better left untouched.
+    """
+    if key == 0:
+        return 0, None
+    if key in (1, 2):
+        return key, 1
+    if key in (3, 4):
+        return key - 2, 0
+    raise ValueError(f"Unknown Work Mode option key: {key}")
+
+
+# Key under which parse_raw reports the time-of-use program: a list with one
+# dict per slot, so the controls and the diagnostics share one parse.
+TIME_OF_USE_PROGRAM = "Time of Use Program"
+
+
+def decode_tou_time(value: int) -> Optional[str]:
+    """Turn the HHMM register value into "HH:MM", or None if nonsensical."""
+    hours, minutes = divmod(int(value), 100)
+    if not (0 <= hours <= 23 and 0 <= minutes <= 59):
+        return None
+    return f"{hours:02d}:{minutes:02d}"
+
+
+def encode_tou_time(hours: int, minutes: int) -> int:
+    """Turn a time of day into the HHMM register value."""
+    if not (0 <= hours <= 23 and 0 <= minutes <= 59):
+        raise ValueError(f"Not a time of day: {hours}:{minutes}")
+    return hours * 100 + minutes
+
+
+def parse_time_of_use(
+    raw: Sequence[Optional[int]],
+) -> Optional[List[Dict[str, Any]]]:
+    """Parse the six time-of-use slots, or None if their block is missing."""
+    slots: List[Dict[str, Any]] = []
+    for n in range(TIME_OF_USE_SLOTS):
+        values: Dict[str, int] = {}
+        for name, base in (
+            ("start", REG_TOU_START),
+            ("power", REG_TOU_POWER),
+            ("soc", REG_TOU_SOC),
+            ("charge", REG_TOU_CHARGE),
+        ):
+            idx = register_index(base + n)
+            if idx is None or not 0 <= idx < len(raw):
+                return None
+            value = raw[idx]
+            if value is None:
+                return None
+            values[name] = int(value)
+        slots.append(
+            {
+                "start": decode_tou_time(values["start"]),
+                "power": values["power"],
+                "soc": values["soc"],
+                "grid_charge": bool(values["charge"] & TOU_GRID_CHARGE_MASK),
+                "gen_charge": bool(values["charge"] & TOU_GEN_CHARGE_MASK),
+            }
+        )
+    return slots
+
+
+# Key under which parse_raw reports the global settings, as {field: value}.
+SETTINGS = "Settings"
+# field -> register, for the settings that are one plain number each
+SETTING_REGISTERS: Dict[str, int] = {
+    "max_sell_power": REG_MAX_SELL_POWER,
+    "max_charge_current": REG_MAX_CHARGE_CURRENT,
+    "max_discharge_current": REG_MAX_DISCHARGE_CURRENT,
+    "battery_shutdown_soc": REG_BATTERY_SHUTDOWN_SOC,
+    "battery_restart_soc": REG_BATTERY_RESTART_SOC,
+    "battery_low_soc": REG_BATTERY_LOW_SOC,
+    "grid_charge_start_soc": REG_GRID_CHARGE_START_SOC,
+    "grid_charge_current": REG_GRID_CHARGE_CURRENT,
+    "grid_charge_enable": REG_GRID_CHARGE_ENABLE,
+    "priority_mode": REG_PRIORITY_MODE,
+}
+# Key under which parse_raw reports the inverter's clock, as "YYYY-MM-DD HH:MM:SS"
+INVERTER_TIME = "Inverter Time"
+
+
+def _register_value(raw: Sequence[Optional[int]], reg: int) -> Optional[int]:
+    """One register's value, or None if it was not read."""
+    idx = register_index(reg)
+    if idx is None or not 0 <= idx < len(raw):
+        return None
+    value = raw[idx]
+    return None if value is None else int(value)
+
+
+def parse_settings(raw: Sequence[Optional[int]]) -> Dict[str, int]:
+    """The global settings that were read, by field. Unread ones are absent."""
+    settings: Dict[str, int] = {}
+    for field, reg in SETTING_REGISTERS.items():
+        value = _register_value(raw, reg)
+        if value is not None:
+            settings[field] = value
+    return settings
+
+
+def decode_clock(regs: Sequence[int]) -> Optional[str]:
+    """Turn the three clock registers into "YYYY-MM-DD HH:MM:SS"."""
+    if len(regs) != 3:
+        return None
+    year, month = regs[0] >> 8, regs[0] & 0xFF
+    day, hour = regs[1] >> 8, regs[1] & 0xFF
+    minute, second = regs[2] >> 8, regs[2] & 0xFF
+    if not (1 <= month <= 12 and 1 <= day <= 31):
+        return None
+    if not (hour <= 23 and minute <= 59 and second <= 59):
+        return None
+    return f"20{year:02d}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d}"
+
+
+def encode_clock(
+    year: int, month: int, day: int, hour: int, minute: int, second: int
+) -> List[int]:
+    """The three clock registers for a date and time."""
+    return [
+        ((year - 2000) & 0xFF) << 8 | month,
+        day << 8 | hour,
+        minute << 8 | second,
+    ]
+
+
+def parse_clock(raw: Sequence[Optional[int]]) -> Optional[str]:
+    """The inverter's clock, or None if its block was not read."""
+    regs = [_register_value(raw, REG_CLOCK + i) for i in range(3)]
+    if any(r is None for r in regs):
+        return None
+    return decode_clock([r for r in regs if r is not None])
+
+
 def parse_raw(
     raw: Sequence[Optional[int]], profile: Optional["Profile"] = None
 ) -> Dict[str, Any]:
@@ -284,12 +453,8 @@ def parse_raw(
                 # Custom logic overrides
                 reg_key = int(registers[0], 16)
                 if reg_key == 0x00F4 and title == "Work Mode" and len(block) == 2:
-                    # 0x00F4 = mode (0 selling first, 1 zero-export to load,
-                    # 2 zero-export to home), 0x00F7 = solar sell flag. The
-                    # optionRanges keys encode the pair: with solar sell the
-                    # mode keeps its key, without it the key is shifted by 2.
                     mode, solar_sell = block
-                    key = 0 if mode == 0 else (mode if solar_sell else mode + 2)
+                    key = work_mode_key(mode, solar_sell)
                     wm_mapping = enum_mappings.get((reg_key, title), {})
                     result[title] = wm_mapping.get(
                         key, f"Unknown ({mode}/{solar_sell})"
@@ -335,5 +500,15 @@ def parse_raw(
             except Exception as e:
                 _LOGGER.debug("Error parsing %s: %s", title, e)
                 continue
+
+    program = parse_time_of_use(raw)
+    if program is not None:
+        result[TIME_OF_USE_PROGRAM] = program
+    settings = parse_settings(raw)
+    if settings:
+        result[SETTINGS] = settings
+    clock = parse_clock(raw)
+    if clock is not None:
+        result[INVERTER_TIME] = clock
 
     return result

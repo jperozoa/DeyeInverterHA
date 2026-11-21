@@ -14,6 +14,7 @@ from .const import (
     CONF_INSTALLED_POWER,
     CONF_MOD,
     DEFAULT_MOD,
+    PLATFORMS,
 )
 from .coordinator import DeyeDataUpdateCoordinator
 
@@ -59,8 +60,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # the coordinator and its entities were built with.
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 
-    # Forward the configuration to the sensor platform
-    await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     return True
 
@@ -72,7 +72,7 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry and its platforms."""
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, ["sensor"])
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id)
     return unload_ok
